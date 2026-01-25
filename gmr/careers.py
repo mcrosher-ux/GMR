@@ -10,14 +10,17 @@ from gmr.world_logic import (
     get_regen_age_for_year,
     get_retirement_ages_for_year,
 )
+# Snapshot the initial driver list so we can restore it later
+STARTING_DRIVERS = deepcopy(drivers)
+
+
 def reset_driver_pool():
     """
-    Hard reset the global driver pool to its starting state.
+    Reset the driver pool to its initial starting state.
     Used when starting a brand-new career after bankruptcy or from menu.
     """
-    global drivers
     drivers.clear()
-    drivers.extend(deepcopy(drivers))
+    drivers.extend(deepcopy(STARTING_DRIVERS))
 
 
 
