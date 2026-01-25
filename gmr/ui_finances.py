@@ -1,4 +1,4 @@
-#gmr/finances.py
+# gmr/finances.py
 
 def show_finances(state):
     garage = state.garage

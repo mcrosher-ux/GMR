@@ -1,0 +1,53 @@
+name: GMR Python CI
+
+on:
+  # Trigger on push to ANY branch (main, feature/x, dev, messy-test-1, etc.)
+  push:
+    branches: ["**"]
+
+  # Keep the PR trigger so checks appear clearly in the "Conversation" tab
+  pull_request:
+    branches: ["main"]
+
+  # Allow manual workflow dispatch from the Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Check out the code from the repo
+      - uses: actions/checkout@v4
+
+      # Step 2: Set up a vanilla Python environment
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      # Step 3: Install dependencies
+      # We upgrade pip first, then install requirements if the file exists.
+      # We also install 'flake8' (linter) and 'pytest' (test runner) for checking.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # Step 4: Lint with Flake8
+      # This checks for syntax errors (undefined names, bad indentation).
+      # It stops the build if there are critical errors (E9, F63, F7, F82).
+      - name: Lint with flake8
+        run: |
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          
+      # Step 5: Test
+      # Run the test suite. This ensures the codebase integrity.
+      - name: Test with pytest
+        run: |
+          python -m pytest
