@@ -1,17 +1,21 @@
-#gmr/race_day.py
+# gmr/race_day.py
 import random
 
-from gmr.constants import CHAMPIONSHIP_ACTIVE, CONSTRUCTOR_SHARE, POINTS_TABLE, MONTHS, WEATHER_WET_CHANCE, get_reliability_mult, get_crash_mult, TEST_DRIVERS_ENABLED, get_prize_for_race_and_pos
-
-from gmr.data import drivers, tracks, constructors
-from gmr.world_logic import driver_enters_event, get_car_speed_for_track
+from gmr.constants import (
+    CHAMPIONSHIP_ACTIVE, CONSTRUCTOR_SHARE, POINTS_TABLE, MONTHS,
+    WEATHER_WET_CHANCE, get_reliability_mult, get_crash_mult,
+    TEST_DRIVERS_ENABLED, get_prize_for_race_and_pos,
+    ERA_RELIABILITY_MULTIPLIER, ERA_CRASH_MULTIPLIER
+)
+from gmr.data import drivers, tracks, constructors, engines, chassis_list
+from gmr.world_logic import driver_enters_event, get_car_speed_for_track, calculate_car_speed
 from gmr.core_time import GameTime, get_season_week
 from gmr.calendar import generate_calendar_for_year
-from gmr.careers import update_fame_after_race, update_driver_progress, grant_participation_xp_for_dnfs
-from gmr.constants import ERA_RELIABILITY_MULTIPLIER, ERA_CRASH_MULTIPLIER
-from gmr.story import maybe_trigger_demo_finale
-from gmr.world_logic import calculate_car_speed
-from gmr.data import engines, chassis_list  
+from gmr.careers import (
+    update_fame_after_race, update_driver_progress, grant_participation_xp_for_dnfs,
+    tick_driver_contract_after_race_end
+)
+from gmr.story import maybe_trigger_demo_finale  
 
 
 def clamp(v, lo, hi):
@@ -1382,12 +1386,6 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         # They started the race, even if they DNF'd
         state.races_entered_with_team += 1
 
-        from gmr.careers import tick_driver_contract_after_race_end
-
-
-   
-
-
         if player_finish_pos is not None:
             # Wins / podiums
             if player_finish_pos == 0:
@@ -1725,9 +1723,11 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         retired.append((d, retire_reasons.get(d.get("name"), "unknown")))
 
     # ✅ Contract tick ONLY after the race is finished
-    started_race = (state.player_driver in dnf_drivers) or any(d == state.player_driver for d, _ in finishers)
+    started_race = (
+        (state.player_driver in dnf_drivers) or
+        any(d == state.player_driver for d, _ in finishers)
+    )
 
-    from gmr.careers import tick_driver_contract_after_race_end
     tick_driver_contract_after_race_end(state, time, started_race)
 
     record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired)

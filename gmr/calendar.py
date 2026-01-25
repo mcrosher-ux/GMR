@@ -1,4 +1,4 @@
-#gmr/calendar.py
+# gmr/calendar.py
 
 from gmr.core_time import get_season_week, GameTime
 from gmr.constants import MONTHS

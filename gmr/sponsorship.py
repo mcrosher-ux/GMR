@@ -1,7 +1,5 @@
-#gmr/sponsorship.py
-import random
-
-from gmr.constants import SPONSOR_TRIGGER_RACE_WEEK
+# gmr/sponsorship.py
+# Sponsorship system for drivers
 
 
 def maybe_gallant_driver_promo(state, time):
