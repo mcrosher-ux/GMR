@@ -37,7 +37,7 @@ drivers = [
         "country": "UK",
     },
     {
-        "name": "Hans Keller", "constructor": "Independent",
+        "name": "Hans Smeller", "constructor": "Independent",
         "pace": 5, "consistency": 4,
         "aggression": 7, "mechanical_sympathy": 4, "wet_skill": 4,
         "fame": 0,
