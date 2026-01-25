@@ -1,7 +1,7 @@
 #gmr/careers.py
 import random
 from copy import deepcopy
-from gmr.data import BASE_DRIVERS
+
 
 from gmr.data import drivers
 from gmr.world_logic import (
@@ -17,7 +17,7 @@ def reset_driver_pool():
     """
     global drivers
     drivers.clear()
-    drivers.extend(deepcopy(BASE_DRIVERS))
+    drivers.extend(deepcopy(drivers))
 
 
 
