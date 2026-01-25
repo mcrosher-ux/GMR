@@ -110,7 +110,7 @@ def maybe_refill_valdieri_drivers(state, time):
         s = (
             pace * 1.25 +
             cons * 1.00 +
-            fame * 0.45 +
+            fame * 0.50 +
             youth_bonus
         )
 
