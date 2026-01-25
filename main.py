@@ -8,6 +8,7 @@ from gmr.data import (
     chassis_list,
 )
 
+from gmr.careers import reset_driver_pool, init_driver_careers
 from gmr.constants import MONTHS, TEST_DRIVERS_ENABLED, DEBUG_MODE, PAUSE_ON_CRASH
 from gmr.core_time import GameTime, get_season_week
 from gmr.core_state import GameState
@@ -109,8 +110,8 @@ def setup_player(state):
 def run_game():
     global race_calendar
     global TEST_DRIVERS_ENABLED
-
-
+    reset_driver_pool()
+    init_driver_careers()
     time = GameTime()
     state = GameState()
     setup_player(state)
