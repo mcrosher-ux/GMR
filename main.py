@@ -1,6 +1,6 @@
 # main.py
 import random
-from gmr.data import constructors, engines
+from gmr.data import constructors
 from gmr.constants import MONTHS, TEST_DRIVERS_ENABLED
 from gmr.core_time import GameTime, get_season_week
 from gmr.core_state import GameState
