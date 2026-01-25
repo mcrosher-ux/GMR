@@ -1,4 +1,4 @@
-#gmr/business.py
+# gmr/business.py
 import random
 
 from gmr.constants import CHAMPIONSHIP_ACTIVE

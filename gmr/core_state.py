@@ -1,5 +1,4 @@
-#gmr/core_state.py
-import random
+# gmr/core_state.py
 
 from gmr.data import drivers
 

@@ -1,4 +1,4 @@
-#gmr/ui_garage.py
+# gmr/ui_garage.py
 import random
 from gmr.constants import ENZONI_PRESTIGE_REQUIREMENT
 from gmr.world_logic import describe_career_phase

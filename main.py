@@ -1,14 +1,7 @@
-#main.py
+# main.py
 import random
-from gmr.data import (
-    constructors,
-    drivers,
-    tracks,
-    engines,
-    chassis_list,
-)
-
-from gmr.constants import MONTHS, TEST_DRIVERS_ENABLED, DEBUG_MODE, PAUSE_ON_CRASH
+from gmr.data import constructors, engines
+from gmr.constants import MONTHS, TEST_DRIVERS_ENABLED
 from gmr.core_time import GameTime, get_season_week
 from gmr.core_state import GameState
 from gmr.careers import (

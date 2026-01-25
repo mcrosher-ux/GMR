@@ -1,9 +1,37 @@
-#gmr/world_logic.py
+# gmr/world_logic.py
 import random
-from gmr.data import drivers, constructors, chassis_list
+from gmr.data import drivers, constructors
+
+
+DRIVER_FIRST_NAMES = [
+    "Carlo", "Alberto", "Emmanuel", "George", "Hans", "Luis",
+    "Marco", "Antonio", "Paolo", "Giancarlo", "Franco", "Sergio",
+    "Jean", "Pierre", "Henri", "Jacques", "Michel", "Claude",
+    "Wolfgang", "Helmut", "Klaus", "Dieter", "Rolf", "Horst",
+    "Mario", "Giuseppe", "Vittorio", "Enrico", "Umberto",
+    "Pedro", "Miguel", "Diego", "Juan", "Carlos", "Fernando",
+    "Dennis", "Peter", "Colin", "John", "Graham", "Ian",
+]
+
+DRIVER_LAST_NAMES = [
+    "Bianci", "Rossi", "Dubois", "McCallister", "Keller", "Navarro",
+    "Ferrari", "Bianchi", "Ricci", "Rossi", "Verdi", "Neri",
+    "Dupont", "Bernard", "Martin", "Laurent", "Leclerc", "Arnoux",
+    "Mueller", "Schmidt", "Weber", "Hoffmann", "Fischer", "Richter",
+    "Esposito", "Gallo", "Colombo", "Romano",
+    "Garcia", "Lopez", "Martinez", "Ramirez", "Fernandez",
+    "Hill", "Watson", "Senna", "Villeneuve", "Hunt", "Stewart",
+]
 
 ENZONI = "Enzoni"
 VALDIERI = "Scuderia Valdieri"
+
+
+def generate_random_driver_name():
+    """Generate a random driver name from name pools."""
+    first = random.choice(DRIVER_FIRST_NAMES)
+    last = random.choice(DRIVER_LAST_NAMES)
+    return f"{first} {last}"
 
 
 # Debug toggle: if True, allow test drivers / simplify event entry rules
