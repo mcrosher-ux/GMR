@@ -64,7 +64,8 @@ def calc_travel_cost(home_country: str, event_country: str, year: int) -> int:
     """
     Simple early-era logistics costs.
     - Domestic: tow/van + fuel
-    - Europe: road/rail + lodging
+    - Near Europe: short hop (France/Belgium etc.)
+    - Far Europe: longer haul (Italy etc.)
     - USA: ship + major logistics
     """
     home = normalise_country(home_country)
@@ -72,7 +73,8 @@ def calc_travel_cost(home_country: str, event_country: str, year: int) -> int:
 
     # Baseline costs (tuned to your £ scale)
     DOMESTIC = 25
-    EUROPE = 90
+    NEAR_EUROPE = 70
+    FAR_EUROPE = 110
     TRANSATLANTIC = 350
 
     # Slight inflation / sport growth later
@@ -87,8 +89,21 @@ def calc_travel_cost(home_country: str, event_country: str, year: int) -> int:
     if home == "USA" or dest == "USA":
         return int(TRANSATLANTIC * era_mult)
 
-    # Otherwise treat as "Europe/nearby international"
-    return int(EUROPE * era_mult)
+    # --- Europe split ---
+    # “Near” is basically Channel-crossing / neighbouring countries.
+    near_europe = {"UK", "France", "Belgium", "Switzerland"}
+    far_europe = {"Italy"}
+
+    # If either end is Italy, treat it as the longer-haul European trip
+    if home in near_europe.union(far_europe) and dest in near_europe.union(far_europe):
+        if home in far_europe or dest in far_europe:
+            return int(FAR_EUROPE * era_mult)
+        return int(NEAR_EUROPE * era_mult)
+
+    # Fallback: if you add new countries later and forget to tag them,
+    # treat as near-Europe rather than doing something wild.
+    return int(NEAR_EUROPE * era_mult)
+
 
 
 def charge_race_travel_if_needed(state, time, race_name, track_profile):
