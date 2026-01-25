@@ -55,9 +55,3 @@ Follow the on-screen prompts to manage your team and compete in races.
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
-
-This project is open source. Please check the license file for details.
-
-## Credits
-
-A/M Crosher
