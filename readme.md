@@ -1,10 +1,10 @@
 # GMR - Motorsport Management Game
 
-A text-based motorsport management simulation game written in Python. Build your racing team from a humble garage inheritance in 1947 and compete in the chaotic world of early Grand Prix racing.
+A motorsport management simulation game written in Python for now. Build your racing team from humble garage in 1947 and compete in the chaotic world of Grand Prix racing through multiple decades and eras akin to Greydog Software simulations and Champ Manager 97.
 
 ## Description
 
-In GMR, you inherit your father's old racing chassis and a worn engine, starting with a small shed and a single mechanic. Navigate the post-war motorsport scene, where there are no official championships, minimal safety, and fierce competition from marques like Enzoni.
+In GMR, you inherit your father's old racing car, starting with a small shed and a single mechanic. Navigate the post-war motorsport scene, era of champions, modern age. 
 
 Manage your team's finances, hire drivers, develop your car, secure sponsorships, and race against other constructors across Europe. Survive the era's reliability issues, crashes, and economic challenges to build a legendary racing outfit.
 
@@ -14,9 +14,9 @@ Manage your team's finances, hire drivers, develop your car, secure sponsorships
 - **Car Development**: Upgrade engines, chassis, and manage reliability
 - **Driver Management**: Hire, fire, and manage driver contracts and careers
 - **Financial Management**: Balance budgets, secure sponsors, and handle expenses
-- **Racing Calendar**: Compete in various Grand Prix events across Europe
+- **Racing Calendar**: Compete in various Grand Prix events across the world
 - **Dynamic World**: Rumors, team expansions, and changing market conditions
-- **Historical Setting**: Set in 1947, capturing the spirit of early motorsport
+- **Historical Setting**: Starting in 1947, capturing the spirit of the history of motorsport
 
 ## Requirements
 
@@ -46,6 +46,8 @@ The game is played through a text-based interface. You'll make decisions each we
 - Business development
 - PR activities
 
+
+
 Follow the on-screen prompts to manage your team and compete in races.
 
 ## Contributing
@@ -58,4 +60,4 @@ This project is open source. Please check the license file for details.
 
 ## Credits
 
-Created as a passion project for motorsport enthusiasts.ra
+A/M Crosher
