@@ -255,6 +255,7 @@ constructors = {
 tracks = {
     "Marblethorpe GP": {
         "country": "UK",
+        "flavor": "Nestled in the rolling hills of the northern countryside, Marblethorpe is a test of endurance on its long, sweeping corners. The circuit's high speeds demand precise car setup, and the unpredictable weather often turns races into survival challenges. Local fans pack the grandstands, waving flags and cheering for homegrown talent.",
         "engine_danger": 1.05,
         "crash_danger": 1.00,
         "pace_weight": 1.04,
@@ -276,6 +277,7 @@ tracks = {
    },
     "Château-des-Prés GP": {
         "country": "France",
+        "flavor": "Set in the picturesque valley, Château-des-Prés combines elegance with danger. The chateau's historic walls echo with the roar of engines, and the tight, technical layout punishes any lapse in concentration. Passionate crowds are enthusiastic, with drinks flowing freely in the pits and the air thick with smoke.",
         "engine_danger": 0.95,
         "crash_danger": 1.10,
         "pace_weight": 0.95,
@@ -297,6 +299,7 @@ tracks = {
   },
     "Vallone GP": {
         "country": "Italy",
+        "flavor": "The crown jewel of Italian motorsport, Vallone's high-speed straights and blistering heat push cars and drivers to their limits. Nestled in the Tuscan hills, the circuit's demanding nature has claimed many victims, but the glory of victory here is unmatched. Espresso-fueled mechanics work through the night, and the air vibrates with the passion of tifosi.",
         "engine_danger": 1.10,
         "crash_danger": 1.05,
         "pace_weight": 1.12,
@@ -318,6 +321,7 @@ tracks = {
 },
     "Rougemont GP": {
         "country": "Switzerland",
+        "flavor": "Perched in the pristine Swiss Alps, Rougemont is a circuit of precision and beauty. The cool mountain air and sweeping alpine views create a serene backdrop for intense competition, where mechanical perfection is rewarded. Swiss efficiency reigns in the pits, with watches ticking in sync with lap times, and the crisp air carries the scent of fresh snow from nearby peaks.",
         "engine_danger": 1.00,
         "crash_danger": 0.95,
         "pace_weight": 1.00,
@@ -338,6 +342,7 @@ tracks = {
 },
     "Ardennes Endurance GP": {
         "country": "Belgium",
+        "flavor": "The grueling Ardennes circuit winds through the dense forests of the Belgian Ardennes, a true test of man and machine. Its long distance and variable weather make reliability paramount, and the thick woods muffle the cheers of sparse crowds. Victory here is a badge of honor, whispered about in smoky bars across Europe.",
         "engine_danger": 1.15,
         "crash_danger": 1.05,
         "pace_weight": 1.08,
@@ -361,6 +366,7 @@ tracks = {
     "Bradley Fields": {
         "country": "UK",
         "allowed_nationalities": ["UK", "France", "Belgium", "Switzerland"],
+        "flavor": "A modest club circuit on the windswept Yorkshire moors, Bradley Fields is where newcomers prove themselves. The short, tight layout favors mechanical sympathy over outright speed, and the damp air often brings fog and rain. It's a humble venue, but podiums here open doors to bigger stages.",
         "engine_danger": 0.95,          # not too hard on engines
         "crash_danger": 1.00,           # club-level risk
         "pace_weight": 0.98,
@@ -381,7 +387,9 @@ tracks = {
         "suspension_importance": 1.00,
     },
     "Little Autodromo": {
-        "country": "Italy",        
+        "country": "Italy",
+        "allowed_nationalities": ["Italy", "Spain"],
+        "flavor": "A sun-baked testing ground in the Italian countryside, Little Autodromo is where Italian hopefuls hone their skills. The warm climate and straightforward layout make it ideal for learning, but the heat can expose weaknesses. Local mechanics share tips over gelato, and the atmosphere is one of camaraderie rather than cutthroat competition.",
         "engine_danger": 1.00,
         "crash_danger": 1.02,
         "pace_weight": 1.05,            # bit more about raw speed
@@ -405,6 +413,7 @@ tracks = {
     "Union Speedway": {
         "country": "USA",
         "allowed_nationalities": ["USA"],
+        "flavor": "A vast American oval under the wide-open skies, Union Speedway is where horsepower reigns supreme. The long straights and high banking test the limits of speed and courage, with the roar of engines echoing across the plains. American crowds are boisterous, waving stars and stripes, and the post-race barbecues are legendary. Victory here is about raw power and the American dream of motorsport.",
         "engine_danger": 1.10,
         "crash_danger": 1.15,
         "pace_weight": 1.15,            # bit more about raw speed

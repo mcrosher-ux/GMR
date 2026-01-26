@@ -2048,6 +2048,10 @@ def show_race_briefing(state, time, race_name):
     print(f"  Crash danger:  {describe_level(crash_danger, 'crash')}")
     print(f"  Style:         {describe_style(pace_w, cons_w)}")
 
+    # Add flavor text if available
+    if "flavor" in track_profile:
+        print(f"\n{track_profile['flavor']}")
+
     # Climate flavour
     climate_line = None
     if wet_chance >= WEATHER_WET_CHANCE + 0.1:

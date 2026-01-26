@@ -426,7 +426,7 @@ def maybe_spawn_scuderia_valdieri(state, time, season_week, race_calendar):
 def maybe_add_weekly_rumour(state, time):
     """
     Occasionally inject a bit of 'paddock gossip' into the news.
-    Pure flavour – no mechanics hooked up (yet).
+    Now more reflective of game state for added immersion.
     """
     # Roughly 30% chance per week
     if random.random() > 0.30:
@@ -445,7 +445,54 @@ def maybe_add_weekly_rumour(state, time):
         f"Some wonder why {team_name} skipped a recent race — whispers of budget trouble."
     )
 
+    # Recent race results - look at last race in history
+    if state.race_history:
+        last_race = state.race_history[-1]
+        if last_race["finishers"]:
+            winner = last_race["finishers"][0]
+            winner_name = winner["name"]
+            winner_constructor = winner.get("constructor", "Independent")
+            rumours.append(f"Paddock buzz: {winner_name} of {winner_constructor} dominated at {last_race['race']}, leaving rivals in the dust.")
+            
+            # If player was in the race
+            player_in_race = any(f["name"] == (state.player_driver["name"] if state.player_driver else "") for f in last_race["finishers"] + last_race["dnfs"])
+            if player_in_race:
+                player_finish = None
+                for f in last_race["finishers"]:
+                    if f["name"] == state.player_driver["name"]:
+                        player_finish = f["pos"]
+                        break
+                if player_finish == 1:
+                    rumours.append(f"Everyone's talking about {team_name}'s stunning victory at {last_race['race']} — the champagne is flowing!")
+                elif player_finish and player_finish <= 3:
+                    rumours.append(f"{team_name} secured another podium at {last_race['race']}; sponsors are smiling.")
+                elif player_finish and player_finish > 10:
+                    rumours.append(f"Whispers suggest {team_name} struggled at {last_race['race']} — perhaps reliability issues?")
+                
+                # DNF rumors
+                player_dnf = any(d["name"] == state.player_driver["name"] for d in last_race["dnfs"])
+                if player_dnf:
+                    dnf_reason = next((d["reason"] for d in last_race["dnfs"] if d["name"] == state.player_driver["name"]), "unknown")
+                    if dnf_reason == "engine":
+                        rumours.append(f"Paddock gossip: {team_name}'s engine let them down again at {last_race['race']} — time for a rebuild?")
+                    elif dnf_reason == "crash":
+                        rumours.append(f"Rumours circulate about {team_name}'s dramatic crash at {last_race['race']}; the car took a beating.")
 
+    # Weather rumors for upcoming races
+    from gmr.data import tracks
+    # Check if there's a pending race this week
+    if hasattr(state, 'pending_race_week') and state.pending_race_week:
+        from gmr.calendar import generate_calendar_for_year
+        race_calendar = generate_calendar_for_year(time.year)
+        if state.pending_race_week in race_calendar:
+            upcoming_race = race_calendar[state.pending_race_week]
+            track_profile = tracks.get(upcoming_race, {})
+            wet_chance = track_profile.get("wet_chance", 0.2)
+            hot_chance = track_profile.get("base_hot_chance", 0.2)
+            if wet_chance > 0.4:
+                rumours.append(f"Weather scouts predict tricky conditions at {upcoming_race} — rain could play havoc with the race.")
+            elif hot_chance > 0.4:
+                rumours.append(f"Hot weather expected at {upcoming_race}; teams are preparing for tire wear and overheating.")
 
     # Money-related
     if state.money < 500:
@@ -478,6 +525,24 @@ def maybe_add_weekly_rumour(state, time):
         rumours.append(
             f"Most teams still treat {team_name} as just another backmarker shed outfit."
         )
+
+    # Random driver/team news
+    driver_names = ["Marco Valtieri", "Luca Rossi", "Henri Dubois", "Karl Schmidt", "James Harrington"]
+    if state.player_driver and state.player_driver["name"] in driver_names:
+        rumours.append(f"Scouts from other teams are watching {state.player_driver['name']} closely after recent performances.")
+    
+    # Team rivalries
+    if state.prestige > 5.0:
+        rumours.append("Rival teams are said to be envious of the resources flowing into the paddock's newest success story.")
+    
+    # Random events
+    random_events = [
+        "A mysterious benefactor is said to be funding a new team from the shadows.",
+        "Whispers of a new engine formula that could change everything next season.",
+        "Old racing circuits are being modernized; the future of the sport is evolving.",
+        "Driver safety is becoming a hot topic after a recent incident at practice."
+    ]
+    rumours.extend(random_events)
 
     if not rumours:
         return
