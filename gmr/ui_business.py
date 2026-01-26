@@ -43,6 +43,7 @@ def show_business(state, time):
                 print(f"  Deal runs until end of {state.sponsor_end_year}")
                 print(f"  Races started under this deal: {state.sponsor_races_started}")
                 print(f"  Podiums under this deal: {state.sponsor_podiums}")
+                print(f"  Goals completed: {'✓' if state.sponsor_goals_races_started else '✗'} 3 races started, {'✓' if state.sponsor_goals_podium else '✗'} 1 podium")
 
                 # PATCH 5: show current, multiplier-adjusted terms
                 base_appearance = 60

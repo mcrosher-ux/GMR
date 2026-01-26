@@ -253,6 +253,14 @@ def pay_appearance_money(state, race_name):
     payout = int(base + state.prestige * mult)
     payout = max(0, payout)
 
+    # Cap appearance money based on track prestige
+    if race_name in ["Bradley Fields", "Little Autodromo"]:
+        payout = min(payout, 50)
+    elif race_name in ["Ardennes Endurance GP", "Union Speedway"]:
+        payout = min(payout, 150)
+    else:
+        payout = min(payout, 100)
+
     # Track appearance money separately from prize money
     if not hasattr(state, "last_week_appearance_income"):
         state.last_week_appearance_income = 0
@@ -569,6 +577,32 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
             retired.append((d, "crash"))
             state.news.append(f"{d['name']} ({d['constructor']}) crashed out of the race.")
             add_crash_explanation(state, d, track_profile, is_hot, is_wet, perspective="neutral")
+            
+            # Check for injuries (player driver only for now)
+            if state.player_driver and d['name'] == state.player_driver['name']:
+                injury_roll = random.random()
+                if injury_roll < 0.05:  # 5% chance of career-ending injury
+                    state.player_driver_injury_severity = 3
+                    state.player_driver_injury_weeks_remaining = 0  # Immediate retirement
+                    state.news.append(f"TERRIBLE NEWS: {d['name']} has suffered a career-ending injury in the crash!")
+                    state.news.append(f"{d['name']} will never race again. Your team must find a new driver.")
+                    # Clear player driver
+                    state.player_driver = None
+                elif injury_roll < 0.20:  # 15% chance of serious injury (2-6 weeks)
+                    state.player_driver_injury_severity = 2
+                    weeks_out = random.randint(2, 6)
+                    state.player_driver_injury_weeks_remaining = weeks_out
+                    state.news.append(f"BAD NEWS: {d['name']} has suffered a serious injury in the crash!")
+                    state.news.append(f"{d['name']} will be unable to drive for {weeks_out} weeks.")
+                else:  # 80% chance of minor injury (1-2 weeks)
+                    state.player_driver_injury_severity = 1
+                    weeks_out = random.randint(1, 2)
+                    state.player_driver_injury_weeks_remaining = weeks_out
+                    state.news.append(f"{d['name']} has suffered a minor injury in the crash.")
+                    state.news.append(f"{d['name']} will be unable to drive for {weeks_out} week{'s' if weeks_out > 1 else ''}.")
+                
+                state.player_driver_injured = state.player_driver_injury_weeks_remaining > 0
+            
             continue
 
         # Survived -> classified finisher
@@ -1490,6 +1524,25 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
             state.last_week_sponsor_income += podium_bonus
             state.constructor_earnings += podium_bonus
 
+        # Check sponsor goals
+        if not state.sponsor_goals_races_started and state.sponsor_races_started >= 3:
+            state.sponsor_goals_races_started = True
+            bonus = 500  # bonus for completing races started goal
+            state.money += bonus
+            state.last_week_income += bonus
+            state.last_week_sponsor_income += bonus
+            state.constructor_earnings += bonus
+            state.news.append(f"Sponsor bonus: Completed 3 races started goal! +£{bonus}")
+
+        if not state.sponsor_goals_podium and state.sponsor_podiums >= 1:
+            state.sponsor_goals_podium = True
+            bonus = 1000  # bonus for completing podium goal
+            state.money += bonus
+            state.last_week_income += bonus
+            state.last_week_sponsor_income += bonus
+            state.constructor_earnings += bonus
+            state.news.append(f"Sponsor bonus: Achieved first podium! +£{bonus}")
+
     # Pay driver salary ONLY on race weeks (mercenary model)
     if state.player_driver and state.driver_pay > 0:
         state.money -= state.driver_pay
@@ -2220,8 +2273,11 @@ def handle_race_week(state, time):
         or state.current_chassis is None
         or not state.player_driver
     )
+    
+    # Check if driver is injured
+    driver_injured = getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 0
 
-    if no_car:
+    if no_car or driver_injured:
         # You physically can't run the event: auto-skip, AI-only race
         print(f"\n{race_name} takes place, but your team cannot compete this week.")
         if state.current_engine is None:
@@ -2230,6 +2286,9 @@ def handle_race_week(state, time):
             print("  • No chassis installed.")
         if not state.player_driver:
             print("  • No driver contracted.")
+        if driver_injured:
+            weeks_remaining = getattr(state, 'player_driver_injury_weeks_remaining', 0)
+            print(f"  • Driver injured ({weeks_remaining} week{'s' if weeks_remaining != 1 else ''} remaining).")
 
         print("You watch from the paddock as other teams take part.")
         input("\nPress Enter to continue...")
@@ -2252,6 +2311,16 @@ def handle_race_week(state, time):
     while True:
         choice = input("> ").strip()
         if choice in ("1", ""):
+            # Check if driver is injured before proceeding
+            if getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 0:
+                weeks_remaining = getattr(state, 'player_driver_injury_weeks_remaining', 0)
+                print(f"\nYour driver {state.player_driver['name']} is still injured and cannot race.")
+                print(f"They will be unable to drive for another {weeks_remaining} week{'s' if weeks_remaining != 1 else ''}.")
+                print("You cannot enter this race.")
+                input("\nPress Enter to continue...")
+                run_ai_only_race(state, race_name, time, season_week, track_profile)
+                return
+            
             # ✅ ONLY charge travel if you actually enter the event
             charge_race_travel_if_needed(state, time, race_name, track_profile)
 
@@ -2277,6 +2346,39 @@ def handle_race_week(state, time):
                                 state.transport_paid_races.add(race_name)
                                 state.news.append(f"Paid £{transport_cost} for international transport to {race_name}.")
                                 print(f"Paid £{transport_cost}. Proceeding to the race.")
+                            else:
+                                print("You don't have enough money. Skipping the race.")
+                                run_ai_only_race(state, race_name, time, season_week, track_profile)
+                                return
+                            break
+                        elif sub_choice == "2":
+                            print("Skipping the race.")
+                            run_ai_only_race(state, race_name, time, season_week, track_profile)
+                            return
+                        else:
+                            print("Please choose 1 or 2.")
+
+            # Special transatlantic transport for Union Speedway
+            if race_name == "Union Speedway" and state.player_driver:
+                player_nat = state.player_driver.get("country", "UK")
+                if player_nat != "USA":
+                    print(f"\n{race_name} is across the Atlantic Ocean.")
+                    print(f"Your driver {state.player_driver['name']} is from {player_nat}.")
+                    transatlantic_cost = 500  # higher cost for long distance
+                    print(f"You can pay £{transatlantic_cost} to transport your driver and car across the Atlantic.")
+                    print("1. Pay and enter")
+                    print("2. Skip this race")
+                    while True:
+                        sub_choice = input("> ").strip()
+                        if sub_choice in ("1", ""):
+                            if state.money >= transatlantic_cost:
+                                state.money -= transatlantic_cost
+                                state.last_week_travel_cost += transatlantic_cost
+                                if not hasattr(state, 'transport_paid_races'):
+                                    state.transport_paid_races = set()
+                                state.transport_paid_races.add(race_name)
+                                state.news.append(f"Paid £{transatlantic_cost} for transatlantic transport to {race_name}.")
+                                print(f"Paid £{transatlantic_cost}. Proceeding to the race.")
                             else:
                                 print("You don't have enough money. Skipping the race.")
                                 run_ai_only_race(state, race_name, time, season_week, track_profile)

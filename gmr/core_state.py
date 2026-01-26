@@ -50,6 +50,10 @@ class GameState:
         self.garage = GarageState()
         self.driver_contract_races = 0
         self.driver_pay = 0
+        # Injury system
+        self.player_driver_injured = False
+        self.player_driver_injury_weeks_remaining = 0
+        self.player_driver_injury_severity = 0  # 0=none, 1=minor, 2=serious, 3=career-ending
         self.podiums = {}   # season_week -> list of (driver_name, constructor)
         self.podiums_year = 1947  # tracks which season the stored podiums belong to
         self.race_history = []       # list of race records
@@ -98,6 +102,9 @@ class GameState:
         # Sponsor tuning
         self.sponsor_rate_multiplier = 1.0   # lets us sweeten the deal later
         self.sponsor_bonus_event_done = False  # have we had the prestige 5 advert chat yet?
+        # Goal tracking for sponsor contracts
+        self.sponsor_goals_races_started = False  # completed 3 races started
+        self.sponsor_goals_podium = False  # completed 1 podium
 
       
         self.demo_complete = False
