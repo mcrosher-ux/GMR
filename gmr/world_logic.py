@@ -130,7 +130,7 @@ def get_car_speed_for_track(state, track_profile):
     car_speed = engine_component * 0.6 + chassis_component * 0.4
     return round(car_speed, 1)
 
-def driver_enters_event(driver, race_name, track_profile):
+def driver_enters_event(driver, race_name, track_profile, state=None):
     """
     Decide if a driver enters an event.
 
@@ -142,6 +142,17 @@ def driver_enters_event(driver, race_name, track_profile):
     # Patch F: test archetypes are for dev only
     if ctor == "Test":
         return TEST_DRIVERS_ENABLED
+
+    # Allow player driver if transport paid
+    if state and driver == state.player_driver and race_name in getattr(state, 'transport_paid_races', set()):
+        return True
+
+    # Nationality restrictions
+    allowed_nats = track_profile.get("allowed_nationalities")
+    if allowed_nats:
+        driver_nat = driver.get("country", "UK")
+        if driver_nat not in allowed_nats:
+            return False
 
     # Valdieri schedule rules (demo)
     if ctor == "Scuderia Valdieri":
