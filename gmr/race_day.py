@@ -578,7 +578,7 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
             state.news.append(f"{d['name']} ({d['constructor']}) crashed out of the race.")
             add_crash_explanation(state, d, track_profile, is_hot, is_wet, perspective="neutral")
             
-            # Check for injuries (player driver only for now)
+            # Check for injuries (player driver only)
             if state.player_driver and d['name'] == state.player_driver['name']:
                 injury_roll = random.random()
                 if injury_roll < 0.05:  # 5% chance of career-ending injury
@@ -669,7 +669,7 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
             if pos < len(POINTS_TABLE):
                 state.points[d["name"]] += POINTS_TABLE[pos]
 
-    # Headline
+    # Headline with enhanced media flavor
     winner = finishers[0][0]
     if len(finishers) > 1:
         runner_up = finishers[1][0]
@@ -681,6 +681,58 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
         headline = f"{race_name}: {winner['name']} wins for {winner['constructor']}."
     state.news.append(headline)
 
+    # Add atmospheric and media coverage based on race conditions
+    weather_descriptions = []
+    if is_wet:
+        weather_descriptions.extend([
+            "Dramatic wet-weather victory as rain made conditions treacherous.",
+            "Spectacular driving in the pouring rain - a true test of skill.",
+            "Rain-soaked triumph as drivers battled aquaplaning and poor visibility.",
+        ])
+    elif is_hot:
+        weather_descriptions.extend([
+            "Scorching conditions tested cars and drivers to their limits.",
+            "Heat haze shimmered over the track as temperatures soared.",
+            "Tires and engines pushed to the brink in the blazing heat.",
+        ])
+    else:
+        weather_descriptions.extend([
+            "Perfect racing conditions produced an exciting spectacle.",
+            "Clear skies and good grip led to wheel-to-wheel racing.",
+            "A beautiful day for racing with excellent track conditions.",
+        ])
+
+    if weather_descriptions:
+        state.news.append("RACE ATMOSPHERE: " + random.choice(weather_descriptions))
+
+    # Media coverage for significant results
+    if len(finishers) >= 3:
+        winner_constructor = winner.get('constructor', 'Independent')
+        second_constructor = finishers[1][0].get('constructor', 'Independent')
+        third_constructor = finishers[2][0].get('constructor', 'Independent')
+
+        # Constructor dominance
+        if winner_constructor == second_constructor == third_constructor:
+            state.news.append(f"DOMINANCE DISPLAY: {winner_constructor} sweeps the podium with a 1-2-3 finish!")
+
+        # Close racing
+        winner_perf = finishers[0][1]
+        second_perf = finishers[1][1]
+        if winner_perf - second_perf < 2.0:  # Very close finish
+            state.news.append("PHOTO FINISH: Victory decided by the narrowest of margins!")
+
+    # Crowd reactions and atmosphere
+    crowd_reactions = [
+        "The crowd erupts in cheers as the chequered flag falls.",
+        "Spectators wave flags and banners in celebration of the racing.",
+        "The grandstands buzz with excitement and conversation.",
+        "Marshals in white coats direct the post-race procedures.",
+        "Team personnel rush to congratulate their drivers.",
+        "Journalists swarm the podium for interviews and photos.",
+        "The pit lane comes alive with celebrations and analysis.",
+    ]
+    state.news.append("TRACKSIDE: " + random.choice(crowd_reactions))
+
     # Podium (finishers)
     podium = []
     for pos, (d, _) in enumerate(finishers[:3]):
@@ -688,7 +740,7 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
     state.podiums[season_week] = podium
     state.podiums_year = time.year
 
-    # Full classification
+    # Full classification with enhanced reporting
     state.news.append("Race Results (AI-only event):")
     for pos, (d, _) in enumerate(finishers, start=1):
         line = f"{pos}. {d['name']} ({d['constructor']})"
@@ -697,14 +749,28 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
             line += f" - {pts} pts"
         state.news.append(line)
 
-    # Retirements list (so you can SEE that DNFs happened)
+    # Retirements list with more dramatic reporting
     if retired:
         state.news.append("Retirements:")
         for d, reason in retired:
             if reason == "engine":
                 state.news.append(f"- {d['name']} ({d['constructor']}): engine failure")
+                # Add media context for engine failures
+                engine_comments = [
+                    "Mechanical gremlins strike again in this relentless sport.",
+                    "The roar of racing gives way to the silence of mechanical failure.",
+                    "Engineers will be working through the night to understand this failure.",
+                ]
+                state.news.append("TECHNICAL ANALYSIS: " + random.choice(engine_comments))
             else:
                 state.news.append(f"- {d['name']} ({d['constructor']}): crash")
+                # Add media context for crashes
+                crash_comments = [
+                    "Safety marshals respond quickly to extract the driver.",
+                    "The incident brings out the red flags and stops the race.",
+                    "Medical teams stand ready as the car is recovered.",
+                ]
+                state.news.append("INCIDENT RESPONSE: " + random.choice(crash_comments))
 
     # Small prestige hit for skipping
     if state.prestige > 0:
@@ -1125,11 +1191,11 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
             wear_mult = (1 + (1 - wear_factor))
             add_factor("engine condition", wear_mult)
 
-        # Only mention long-term fatigue when it's actually meaningfully degraded
-        if state.engine_health < 95.0:
-            health_factor = max(0.2, state.engine_health / 100.0)
-            health_mult = 1 / health_factor
-            add_factor("long-term engine fatigue", health_mult)
+            # Only mention long-term fatigue when it's actually meaningfully degraded
+            if state.engine_health < 75.0:
+                health_factor = max(0.2, state.engine_health / 100.0)
+                health_mult = 1 / health_factor
+                add_factor("long-term engine fatigue", health_mult)
 
 
         # Race length
@@ -1288,6 +1354,30 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
                     perspective="player",
                     breakdown=crash_breakdown
                 )
+
+                # Check for injuries
+                injury_roll = random.random()
+                if injury_roll < 0.05:  # 5% chance of career-ending injury
+                    state.player_driver_injury_severity = 3
+                    state.player_driver_injury_weeks_remaining = 0  # Immediate retirement
+                    state.news.append(f"TERRIBLE NEWS: {d['name']} has suffered a career-ending injury in the crash!")
+                    state.news.append(f"{d['name']} will never race again. Your team must find a new driver.")
+                    # Clear player driver
+                    state.player_driver = None
+                elif injury_roll < 0.20:  # 15% chance of serious injury (2-6 weeks)
+                    state.player_driver_injury_severity = 2
+                    weeks_out = random.randint(2, 6)
+                    state.player_driver_injury_weeks_remaining = weeks_out
+                    state.news.append(f"BAD NEWS: {d['name']} has suffered a serious injury in the crash!")
+                    state.news.append(f"{d['name']} will be unable to drive for {weeks_out} weeks.")
+                else:  # 80% chance of minor injury (1-2 weeks)
+                    state.player_driver_injury_severity = 1
+                    weeks_out = random.randint(1, 2)
+                    state.player_driver_injury_weeks_remaining = weeks_out
+                    state.news.append(f"{d['name']} has suffered a minor injury in the crash.")
+                    state.news.append(f"{d['name']} will be unable to drive for {weeks_out} week{'s' if weeks_out > 1 else ''}.")
+                
+                state.player_driver_injured = state.player_driver_injury_weeks_remaining > 0
 
                 # Damage values
                 if heavy_shunt:

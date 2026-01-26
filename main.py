@@ -17,7 +17,7 @@ from gmr.careers import (
     maybe_refill_valdieri_drivers,
 
 )
-from gmr.sponsorship import maybe_offer_sponsor, maybe_gallant_leaf_advert
+from gmr.sponsorship import maybe_offer_sponsor, maybe_gallant_leaf_advert, maybe_sponsor_media_event, maybe_driver_interview, maybe_technical_inspection, maybe_weather_preparation, maybe_fan_interaction, maybe_supplier_issue, maybe_rival_interaction
 from gmr.world_logic import maybe_add_weekly_rumour, calculate_car_speed, maybe_spawn_scuderia_valdieri
 from gmr.calendar import show_calendar
 from gmr.ui_finances import show_finances
@@ -29,6 +29,7 @@ from gmr.ui_garage import (
     handle_repairs,
     handle_test_day,
     can_book_test_day,
+    handle_garage_upgrades,
     rename_car,
 )
 from gmr.careers import show_driver_market
@@ -214,6 +215,15 @@ def run_game():
         # Sponsorship checks (offer if conditions met)
         maybe_offer_sponsor(state, time)
         maybe_gallant_leaf_advert(state, time)
+        maybe_sponsor_media_event(state, time)
+
+        # Random weekly events
+        maybe_driver_interview(state, time)
+        maybe_technical_inspection(state, time)
+        maybe_weather_preparation(state, time)
+        maybe_fan_interaction(state, time)
+        maybe_supplier_issue(state, time)
+        maybe_rival_interaction(state, time)
 
 
         # -------- MAIN MENU --------
@@ -312,8 +322,9 @@ def run_game():
                 print("3. Chassis Development Program")
                 print("4. Repairs & Maintenance")
                 print("5. Book a Test Day")
-                print("6. Name / rename car")
-                print("7. Back to Main Menu")
+                print("6. Garage Upgrades")
+                print("7. Name / rename car")
+                print("8. Back to Main Menu")
 
                 sub_choice = input("> ").strip()
 
@@ -344,8 +355,10 @@ def run_game():
                 elif sub_choice == "5":
                     handle_test_day(state, time)
                 elif sub_choice == "6":
-                    rename_car(state)      # 👈 new option
+                    handle_garage_upgrades(state, time)
                 elif sub_choice == "7":
+                    rename_car(state)
+                elif sub_choice == "8":
                     break
                 else:
                     print("Invalid choice.")
@@ -428,6 +441,7 @@ def run_game():
                 # ------------------------------
                 if state.chassis_project_active and state.current_chassis:
                     ch = state.current_chassis
+                    supplier_key = ch.get("supplier", "")
 
                     # Ensure slot fields exist (safe for old saves)
                     if "dev_slots" not in ch:
@@ -440,6 +454,8 @@ def run_game():
                         state.chassis_project_active = False
                         state.chassis_progress = 0.0
                         state.chassis_project_chassis_id = None
+                        state.chassis_project_stat_target = None
+                        state.chassis_project_dev_bonus = 0.0
                     else:
                         # Tie progress to a specific chassis; reset if you changed chassis
                         if state.chassis_project_chassis_id is None:
@@ -448,53 +464,28 @@ def run_game():
                             # Swapped to a different chassis: lose old progress, start fresh
                             state.chassis_project_chassis_id = ch["id"]
                             state.chassis_progress = 0.0
+                            state.chassis_project_stat_target = None
+                            state.chassis_project_dev_bonus = 0.0
 
                         dev_weekly_cost = 20  # extra money spent on experiments/materials
                         state.money -= dev_weekly_cost
                         state.last_week_rnd += dev_weekly_cost
 
                         # Progress increases each week based on mechanic skill, with randomness.
-                        weekly_gain = random.uniform(0.3, 1.0) * state.garage.mechanic_skill * 2.0
+                        weekly_gain = random.uniform(0.3, 1.0) * state.garage.get_effective_mechanic_skill(state) * 2.0
                         state.chassis_progress += weekly_gain
 
                         # Enough progress for a breakthrough?
                         if state.chassis_progress >= 100.0:
-                            insight = getattr(state, "chassis_insight", 0.0)  # 0–12 in this demo
-                            mech = state.garage.mechanic_skill               # 1–10-ish
+                            insight = getattr(state, "chassis_insight", 0.0)  # 0–12, gained from test days
+                            mech = state.garage.get_effective_mechanic_skill(state)               # 1–10-ish
 
                             # ------------------------------
-                            # Decide what kind of development this is
+                            # Development quality determines success rate
+                            # Higher insight (from test days) + mechanic skill = better results
+                            # Quality ranges from ~0.0 (terrible) to ~1.4 (excellent)
                             # ------------------------------
-                            # Most work improves aero, sometimes suspension, rarely weight
-                            stat_roll = random.random()
-                            if stat_roll < 0.70:
-                                stat_target = "aero"
-                            elif stat_roll < 0.92:
-                                stat_target = "suspension"
-                            else:
-                                stat_target = "weight"
-
-
-                            # ------------------------------
-                            # Works-constructor dev bonus
-                            # ------------------------------
-                            supplier = ch.get("supplier", "")
-
-                            # Normalise supplier names to constructor keys
-                            supplier_key = supplier
-                            if supplier == "Enzoni Works":
-                                supplier_key = "Enzoni"
-                            elif supplier == "Scuderia Valdieri":
-                                supplier_key = "Scuderia Valdieri"
-
-                            dev_bonus = 0.0
-                            if supplier_key in constructors:
-                                dev_bonus = constructors[supplier_key].get("dev_bonus", 0.0)
-
-                            # ------------------------------
-                            # Final development quality
-                            # ------------------------------
-                            quality = (insight / 12.0) + (mech / 12.0) + dev_bonus
+                            quality = (insight / 12.0) + (mech / 12.0) + state.chassis_project_dev_bonus
                             quality = max(0.0, min(quality, 1.4))
 
                             # Base chances before quality:
@@ -510,11 +501,11 @@ def run_game():
                             roll = random.random()
                             if roll < bad_chance:
                                 # ---- BAD OUTCOME ----
-                                if stat_target == "aero":
+                                if state.chassis_project_stat_target == "aero":
                                     ch["aero"] = max(1, ch.get("aero", 1) - 1)
                                     outcome = "A development misstep harms airflow (-1 aero)."
 
-                                elif stat_target == "suspension":
+                                elif state.chassis_project_stat_target == "suspension":
                                     ch["suspension"] = max(1, ch.get("suspension", 3) - 1)
                                     outcome = "A development misstep ruins the suspension geometry (-1 suspension)."
 
@@ -525,11 +516,11 @@ def run_game():
 
                             elif roll < bad_chance + small_chance:
                                 # ---- SMALL GAIN ----
-                                if stat_target == "aero":
+                                if state.chassis_project_stat_target == "aero":
                                     ch["aero"] = ch.get("aero", 1) + 1
                                     outcome = "Your mechanics find modest aerodynamic gains (+1 aero)."
 
-                                elif stat_target == "suspension":
+                                elif state.chassis_project_stat_target == "suspension":
                                     ch["suspension"] = ch.get("suspension", 3) + 1
                                     outcome = "Small handling gains from suspension refinement (+1 suspension)."
 
@@ -539,14 +530,14 @@ def run_game():
 
                             else:
                                 # ---- BIG GAIN ----
-                                if stat_target == "aero":
+                                if state.chassis_project_stat_target == "aero":
                                     delta = 2
                                     if quality > 1.1 and random.random() < 0.25:
                                         delta = 3
                                     ch["aero"] = ch.get("aero", 1) + delta
                                     outcome = f"Major aerodynamic breakthrough on your chassis (+{delta} aero)."
 
-                                elif stat_target == "suspension":
+                                elif state.chassis_project_stat_target == "suspension":
                                     delta = 2
                                     if quality > 1.1 and random.random() < 0.20:
                                         delta = 3
