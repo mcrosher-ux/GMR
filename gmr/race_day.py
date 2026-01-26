@@ -939,7 +939,7 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
             pace_weight_effect = 1 + (lightness - 5) * 0.03 * weight_pace_importance
             performance *= pace_weight_effect
 
-        # Apply race strategy (player car only)
+        # Apply race strategy
         if d == state.player_driver:
             mode = getattr(state, "risk_mode", "neutral")
             if mode == "nurse":
@@ -948,6 +948,14 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
             elif mode == "attack":
                 # Slightly faster
                 performance *= 1.03
+        else:
+            # AI strategy
+            ai_mode = choose_ai_race_strategy(d, d["constructor"])
+            if ai_mode == "nurse":
+                performance *= 0.97
+            elif ai_mode == "attack":
+                performance *= 1.03
+            # neutral: no change
 
 
 
@@ -2113,6 +2121,47 @@ def choose_race_strategy(state):
 
 
 
+def choose_ai_race_strategy(driver, constructor):
+    """
+    AI drivers choose strategy based on aggression and constructor.
+    Returns risk_mode string.
+    """
+    aggression = driver.get("aggression", 5)
+    
+    # Base chance from aggression
+    if aggression >= 7:
+        attack_chance = 0.6
+        nurse_chance = 0.1
+    elif aggression <= 3:
+        attack_chance = 0.1
+        nurse_chance = 0.6
+    else:
+        attack_chance = 0.3
+        nurse_chance = 0.3
+    
+    # Constructor influence
+    if constructor == "Enzoni":
+        attack_chance += 0.2  # More aggressive
+    elif constructor == "Independent":
+        nurse_chance += 0.1  # More conservative
+    
+    # Normalize
+    attack_chance = min(attack_chance, 1.0)
+    nurse_chance = min(nurse_chance, 1.0)
+    neutral_chance = 1.0 - attack_chance - nurse_chance
+    neutral_chance = max(neutral_chance, 0.0)
+    
+    rand = random.random()
+    if rand < attack_chance:
+        return "attack"
+    elif rand < attack_chance + neutral_chance:
+        return "neutral"
+    else:
+        return "nurse"
+
+
+
+
 
 
 def handle_race_week(state, time):
@@ -2201,6 +2250,38 @@ def handle_race_week(state, time):
         if choice in ("1", ""):
             # ✅ ONLY charge travel if you actually enter the event
             charge_race_travel_if_needed(state, time, race_name, track_profile)
+
+            # Check nationality restrictions for player driver
+            allowed_nats = track_profile.get("allowed_nationalities")
+            if allowed_nats and state.player_driver:
+                player_nat = state.player_driver.get("country", "UK")
+                if player_nat not in allowed_nats:
+                    print(f"\n{race_name} restricts entries to {', '.join(allowed_nats)} drivers only.")
+                    print(f"Your driver {state.player_driver['name']} is from {player_nat}.")
+                    transport_cost = 200  # fixed cost to transport internationally
+                    print(f"You can pay £{transport_cost} to transport your driver and car internationally.")
+                    print("1. Pay and enter")
+                    print("2. Skip this race")
+                    while True:
+                        sub_choice = input("> ").strip()
+                        if sub_choice in ("1", ""):
+                            if state.money >= transport_cost:
+                                state.money -= transport_cost
+                                state.last_week_outgoings += transport_cost
+                                state.news.append(f"Paid £{transport_cost} for international transport to {race_name}.")
+                                print(f"Paid £{transport_cost}. Proceeding to the race.")
+                            else:
+                                print("You don't have enough money. Skipping the race.")
+                                run_ai_only_race(state, race_name, time, season_week, track_profile)
+                                return
+                            break
+                        elif sub_choice == "2":
+                            print("Skipping the race.")
+                            run_ai_only_race(state, race_name, time, season_week, track_profile)
+                            return
+                        else:
+                            print("Please choose 1 or 2.")
+
             break
 
         elif choice == "2":

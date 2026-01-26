@@ -271,6 +271,7 @@ tracks = {
 
     "Bradley Fields": {
         "country": "UK",
+        "allowed_nationalities": ["UK"],
         "engine_danger": 0.95,          # not too hard on engines
         "crash_danger": 1.00,           # club-level risk
         "pace_weight": 0.98,
@@ -314,6 +315,7 @@ tracks = {
     #idea for race that pops up in 1950
     "Union Speedway": {
         "country": "USA",
+        "allowed_nationalities": ["USA"],
         "engine_danger": 1.10,
         "crash_danger": 1.15,
         "pace_weight": 1.15,            # bit more about raw speed

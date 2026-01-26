@@ -143,6 +143,13 @@ def driver_enters_event(driver, race_name, track_profile):
     if ctor == "Test":
         return TEST_DRIVERS_ENABLED
 
+    # Nationality restrictions
+    allowed_nats = track_profile.get("allowed_nationalities")
+    if allowed_nats:
+        driver_nat = driver.get("country", "UK")
+        if driver_nat not in allowed_nats:
+            return False
+
     # Valdieri schedule rules (demo)
     if ctor == "Scuderia Valdieri":
         allowed_races = {

@@ -502,8 +502,9 @@ def spawn_new_rookies(state, time):
         # ------------------------------
         # Name generation (paired pools)
         # ------------------------------
+        pool_key = random.choice(list(NAME_POOLS.keys()))
+        pool = NAME_POOLS[pool_key]
         for _ in range(10):
-            pool = random.choice(list(NAME_POOLS.values()))
             first = random.choice(pool["first"])
             last = random.choice(pool["last"])
             name = f"{first} {last}"
@@ -512,6 +513,16 @@ def spawn_new_rookies(state, time):
                 break
         else:
             name = f"Rookie {year}-{i+1}"
+
+        # Assign country based on pool
+        country_map = {
+            "italian": "Italy",
+            "french": "France",
+            "germanic": "Switzerland",  # or Germany, but Switzerland fits
+            "british": "UK",
+            "iberian": "Spain",  # or Portugal, but Spain fits
+        }
+        country = country_map.get(pool_key, "UK")  # default to UK
 
         # Era-appropriate regen age
         age = get_regen_age_for_year(year)
@@ -541,6 +552,7 @@ def spawn_new_rookies(state, time):
             "wet_skill": wet,
             "fame": fame,
             "age": age,
+            "country": country,
             "car_xp": 0.0
         }
 

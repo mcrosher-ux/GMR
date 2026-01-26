@@ -627,6 +627,112 @@ def run_game():
                     # Re-initialise everything and go again
                     time = GameTime()
                     state = GameState()
+                    # Reset drivers pool for fresh start
+                    from gmr.data import drivers
+                    drivers.clear()
+                    # Re-add initial drivers
+                    initial_drivers = [
+                        # Enzoni factory drivers
+                        {
+                            "name": "Carlo Bianci", "constructor": "Enzoni",
+                            "pace": 7, "consistency": 6,
+                            "aggression": 7, "mechanical_sympathy": 6, "wet_skill": 6,
+                            "fame": 1,
+                            "age": 33,
+                            "country": "Italy",
+                        },
+                        {
+                            "name": "Alberto Rossi", "constructor": "Enzoni",
+                            "pace": 7, "consistency": 7,
+                            "aggression": 6, "mechanical_sympathy": 7, "wet_skill": 7,
+                            "fame": 1,
+                            "age": 31,
+                            "country": "Italy", 
+                        },
+                        # Independents
+                        {
+                            "name": "Emmanuel Dubois", "constructor": "Independent",
+                            "pace": 5, "consistency": 5,
+                            "aggression": 5, "mechanical_sympathy": 5, "wet_skill": 5,
+                            "fame": 0,
+                            "age": 39,
+                            "country": "France",
+                        },
+                        {
+                            "name": "George McCallister", "constructor": "Independent",
+                            "pace": 5, "consistency": 5,
+                            "aggression": 4, "mechanical_sympathy": 6, "wet_skill": 5,
+                            "fame": 0,
+                            "age": 41,
+                            "country": "UK",
+                        },
+                        {
+                            "name": "Hans Keller", "constructor": "Independent",
+                            "pace": 5, "consistency": 4,
+                            "aggression": 7, "mechanical_sympathy": 4, "wet_skill": 4,
+                            "fame": 0,
+                            "age": 42,
+                            "country": "Switzerland",
+                        },
+                        {
+                            "name": "Luis Navarro", "constructor": "Independent",
+                            "pace": 4, "consistency": 6,
+                            "aggression": 4, "mechanical_sympathy": 6, "wet_skill": 6,
+                            "fame": 0,
+                            "age": 38,
+                            "country": "Spain",
+                        },
+                        {
+                            "name": "Ivan Petrov", "constructor": "Independent",
+                            "pace": 4, "consistency": 5,
+                            "aggression": 5, "mechanical_sympathy": 5, "wet_skill": 4,
+                            "fame": 0,
+                            "age": 40,
+                            "country": "Poland",
+                        },
+                        {
+                            "name": "Antonio Marquez", "constructor": "Independent",
+                            "pace": 5, "consistency": 3,
+                            "aggression": 8, "mechanical_sympathy": 3, "wet_skill": 4,
+                            "fame": 0,
+                            "age": 37,
+                            "country": "Spain",
+                        },
+                        # Extra independents
+                        {
+                            "name": "Franco Moretti", "constructor": "Independent",
+                            "pace": 6, "consistency": 6,
+                            "aggression": 6, "mechanical_sympathy": 6, "wet_skill": 6,
+                            "fame": 1,
+                            "age": 34,
+                            "country": "Italy",
+                        },
+                        {
+                            "name": "Peter Lang", "constructor": "Independent",
+                            "pace": 6, "consistency": 5,
+                            "aggression": 6, "mechanical_sympathy": 5, "wet_skill": 5,
+                            "fame": 2,
+                            "age": 29,
+                            "country": "UK",
+                        },
+                        {
+                            "name": "Jan Novak", "constructor": "Independent",
+                            "pace": 5, "consistency": 6,
+                            "aggression": 4, "mechanical_sympathy": 7, "wet_skill": 7,
+                            "fame": 0,
+                            "age": 36,
+                            "country": "USA",
+                        },
+                        {
+                            "name": "Mikel Herrera", "constructor": "Independent",
+                            "pace": 4, "consistency": 7,
+                            "aggression": 3, "mechanical_sympathy": 7, "wet_skill": 5,
+                            "fame": 0,
+                            "age": 35,
+                            "country": "Spain",
+                        },
+                    ]
+                    drivers.extend(initial_drivers)
                     setup_player(state)
                     state.reset_championship()
                     continue
