@@ -1,5 +1,7 @@
 # main.py
 import random
+import json
+import os
 from gmr.data import constructors
 from gmr.constants import MONTHS, TEST_DRIVERS_ENABLED
 from gmr.core_time import GameTime, get_season_week
@@ -36,6 +38,31 @@ from gmr.ui_business import show_business
 from gmr.ui_business import can_do_pr_trip
 from gmr.calendar import generate_calendar_for_year
 from gmr.core_state import ensure_state_fields
+
+def save_game(state, time):
+    os.makedirs("saves", exist_ok=True)
+    filename = input("Enter save name (without extension): ").strip()
+    if filename:
+        data = {
+            "state": vars(state),
+            "time": vars(time)
+        }
+        with open(f"saves/{filename}.json", "w") as f:
+            json.dump(data, f, indent=4)
+        print(f"Game saved as saves/{filename}.json")
+    else:
+        print("Save cancelled.")
+
+def load_game(state, time):
+    filename = input("Enter save name (without extension): ").strip()
+    if filename and os.path.exists(f"saves/{filename}.json"):
+        with open(f"saves/{filename}.json", "r") as f:
+            data = json.load(f)
+        state.__dict__.update(data["state"])
+        time.__dict__.update(data["time"])
+        print(f"Game loaded from saves/{filename}.json")
+    else:
+        print("Save file not found.")
 
 def normalise_country_name(raw: str) -> str:
     """
@@ -217,19 +244,16 @@ def run_game():
         print("4. Garage")
         print("5. Driver Market")
         print("6. Business & Contracts")
-
-        # Patch F: debug toggle for Test drivers
-        test_label = "ON" if TEST_DRIVERS_ENABLED else "OFF"
-        print(f"8. Toggle Test Drivers (debug) [{test_label}]")
+        print("7. Settings")
 
 
         if state.pending_race_week is None:
             # Normal case: no race locked in yet, you can advance time
-            print("7. Advance Week")
+            print("8. Advance Week")
         else:
             # Race is waiting this week; you *must* run the weekend before time can move on
             race_name = race_calendar[state.pending_race_week]
-            print(f"7. Enter race weekend ({race_name})")
+            print(f"8. Enter race weekend ({race_name})")
 
         choice = input("> ").strip()
 
@@ -319,17 +343,41 @@ def run_game():
             # NEW: Business & Contracts screen
             show_business(state, time)
 
-        elif choice == "8":
-            # Patch F: toggle Test drivers (debug)            
-            TEST_DRIVERS_ENABLED = not TEST_DRIVERS_ENABLED
-
-            if TEST_DRIVERS_ENABLED:
-                state.news.append("DEBUG: Test drivers ENABLED (they will enter events).")
-            else:
-                state.news.append("DEBUG: Test drivers DISABLED (kept out of real events).")
-
-
         elif choice == "7":
+            # Settings submenu
+            while True:
+                print("\n=== Settings ===")
+                test_label = "ON" if TEST_DRIVERS_ENABLED else "OFF"
+                print(f"1. Toggle Test Drivers (debug) [{test_label}]")
+                print("2. Save Game")
+                print("3. Load Game")
+                print("4. Exit Game")
+                print("5. Back to Main Menu")
+
+                settings_choice = input("> ").strip()
+
+                if settings_choice == "1":
+                    TEST_DRIVERS_ENABLED = not TEST_DRIVERS_ENABLED
+                    if TEST_DRIVERS_ENABLED:
+                        print("Test drivers ENABLED.")
+                        state.news.append("DEBUG: Test drivers ENABLED (they will enter events).")
+                    else:
+                        print("Test drivers DISABLED.")
+                        state.news.append("DEBUG: Test drivers DISABLED (kept out of real events).")
+                elif settings_choice == "2":
+                    save_game(state, time)
+                elif settings_choice == "3":
+                    load_game(state, time)
+                elif settings_choice == "4":
+                    print("Exiting game. Thanks for playing!")
+                    return  # or break, but since it's nested, return to exit
+                elif settings_choice == "5":
+                    break
+                else:
+                    print("Invalid choice.")
+
+        elif choice == "8":
+            # Advance time OR, if we're already locked into a race weekend, run the race
             # Advance time OR, if we're already locked into a race weekend, run the race
             if state.pending_race_week is None:
                 # ---- Normal: advance the calendar ----
