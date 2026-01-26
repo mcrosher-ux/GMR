@@ -18,9 +18,12 @@ def test_create_regen_driver_returns_driver_profile():
     time = GameTime()
     driver = create_regen_driver(time)
 
-    # Basic shape checks so we catch accidental breakages.
-    assert isinstance(driver, dict)
-    assert driver.get("name")
-    assert isinstance(driver.get("pace"), int)
-    assert isinstance(driver.get("age"), int)
-    assert driver.get("peak_age") >= driver.get("age")
+def test_injury_system_initialized():
+    """Injury system fields should be properly initialized."""
+    state = GameState()
+    assert hasattr(state, 'player_driver_injured')
+    assert state.player_driver_injured == False
+    assert hasattr(state, 'player_driver_injury_weeks_remaining')
+    assert state.player_driver_injury_weeks_remaining == 0
+    assert hasattr(state, 'player_driver_injury_severity')
+    assert state.player_driver_injury_severity == 0

@@ -827,7 +827,7 @@ def show_driver_market(state):
 
             print("Current Driver:")
             print(f"   Name: {d['name']}")
-            print(f"   Age: {age}")
+            print(f"   Age: {age}  Country: {d.get('country', 'Unknown')}")
             print(f"   Pace: {d['pace']}  Consistency: {d['consistency']}")
             print(
                 f"   Aggression: {d['aggression']}  "
@@ -838,6 +838,13 @@ def show_driver_market(state):
             print(f"   Career stage: {describe_career_phase(d)}")
             print(f"   Racing for: {d['constructor']}")
             print(f"   Car comfort: {d.get('car_xp', 0.0):.1f}/10")
+            
+            # Show injury status
+            if getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 0:
+                weeks_remaining = getattr(state, 'player_driver_injury_weeks_remaining', 0)
+                severity = getattr(state, 'player_driver_injury_severity', 0)
+                severity_desc = {1: "minor", 2: "serious", 3: "career-ending"}.get(severity, "unknown")
+                print(f"   ⚠️  INJURED: {severity_desc} injury, {weeks_remaining} week{'s' if weeks_remaining != 1 else ''} remaining")
 
         else:
             print("Current Driver: None hired")
@@ -862,6 +869,7 @@ def show_driver_market(state):
             print(f"{idx}. {d['name']}{marker}")
             print(f"   Age: {age}  Fame: {fame} ({fame_label})")
             print(f"   Career: {career_stage}")
+            print(f"   Country: {d.get('country', 'Unknown')}")
             print(f"   Pace: {d['pace']}  Consistency: {d['consistency']}")
             print(
                 f"   Aggression: {d['aggression']}  "

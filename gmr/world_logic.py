@@ -176,6 +176,15 @@ def driver_enters_event(driver, race_name, track_profile, state=None):
 
 
 
+    # Special rule for Union Speedway: only famous/well-backed internationals can afford the trip
+    if race_name == "Union Speedway":
+        driver_nat = driver.get("country", "UK")
+        if driver_nat != "USA":
+            fame = driver.get("fame", 0)
+            # Only enter if fame 2+ (well-known) or backed by major teams
+            if fame < 2 and ctor == "Independent":
+                return False
+
     # Everyone else: always enters for now (subject to Enzoni rules below)
     if ctor != "Enzoni":
         return True
@@ -204,9 +213,9 @@ def can_team_sign_driver(state, driver):
 
     For now:
       - Fame 0–1  -> basically anyone will talk to you
-      - Fame 2    -> want prestige ~1+
-      - Fame 3    -> want prestige ~2+
-      - Fame 4    -> want prestige ~3+
+      - Fame 2    -> want prestige ~5+
+      - Fame 3    -> want prestige ~7.5+
+      - Fame 4    -> want prestige ~10+
       - etc.
 
     Returns (can_sign: bool, required_prestige: float)
@@ -214,8 +223,8 @@ def can_team_sign_driver(state, driver):
     fame = driver.get("fame", 0)
     prestige = getattr(state, "prestige", 0.0)
 
-    # Simple first-pass formula: prestige must be at least (fame - 1)
-    required_prestige = max(0.0, float(fame) - 1.0)
+    # Updated formula: prestige must be at least fame * 2.5
+    required_prestige = float(fame) * 2.5
 
     return prestige >= required_prestige, required_prestige
 

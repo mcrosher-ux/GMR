@@ -24,6 +24,10 @@ def generate_calendar_for_year(year):
     cal[20] = "Vallone GP"              # sponsor trigger week
     cal[40] = "Ardennes Endurance GP"   # season finale
 
+    # Indy 500 style one-off in 1950
+    if year == 1950:
+        cal[25] = "Union Speedway"       # mid-season American oval event
+
     # Second Vallone stays late summer-ish but not fixed
     # pick from Aug/Sep window: weeks 29–36 excluding 20/40
     vallone2_pool = [w for w in range(29, 37) if w not in cal]

@@ -183,6 +183,10 @@ def run_game():
             # New calendar for the new year
             race_calendar = generate_calendar_for_year(time.year)
 
+            # Check for sponsor contract renewal
+            from gmr.sponsorship import maybe_offer_sponsor_renewal
+            maybe_offer_sponsor_renewal(state, time)
+
             
 
 
@@ -217,6 +221,17 @@ def run_game():
 
         print(f"\n--- Week {time.week}, {MONTHS[time.month]} {time.year} ---")
         print(f"Money: £{state.money}")
+
+        # Driver status
+        if state.player_driver:
+            driver_name = state.player_driver['name']
+            if getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 0:
+                weeks_remaining = getattr(state, 'player_driver_injury_weeks_remaining', 0)
+                print(f"Driver: {driver_name} (INJURED - {weeks_remaining} week{'s' if weeks_remaining != 1 else ''} remaining)")
+            else:
+                print(f"Driver: {driver_name}")
+        else:
+            print("Driver: None")
 
         # Race status for this week
         if season_week in race_calendar:
@@ -638,6 +653,15 @@ def run_game():
                 # Start a new week: clear one-offs for the coming week (defensive)
                 state.last_week_purchases = 0
                 state.last_week_driver_pay = 0
+
+                # Handle driver injury recovery
+                if hasattr(state, 'player_driver_injury_weeks_remaining') and state.player_driver_injury_weeks_remaining > 0:
+                    state.player_driver_injury_weeks_remaining -= 1
+                    if state.player_driver_injury_weeks_remaining <= 0:
+                        state.player_driver_injured = False
+                        state.player_driver_injury_severity = 0
+                        if state.player_driver:
+                            state.news.append(f"Good news: {state.player_driver['name']} has recovered from their injury and is ready to race again!")
 
                 # Actually move time forward
                 time.advance_week()

@@ -196,6 +196,65 @@ def maybe_gallant_leaf_advert(state, time):
     print("and a forced smile. At least the cheque clears.")
 
 
+def maybe_offer_sponsor_renewal(state, time):
+    """
+    At the start of a new year, if the sponsor contract has expired,
+    offer renewal with better terms if goals were met.
+    """
+    if not state.sponsor_active:
+        return
+
+    # Only check when the contract year has passed
+    if time.year <= state.sponsor_end_year:
+        return
+
+    # Goals met bonus
+    goals_met = state.sponsor_goals_races_started and state.sponsor_goals_podium
+    renewal_bonus = 1000 if goals_met else 0
+    rate_increase = 0.25 if goals_met else 0.0
+
+    print(f"\n{state.sponsor_name} contacts you about renewing the sponsorship deal.")
+    print(f"Your contract expired at the end of {state.sponsor_end_year}.")
+    
+    if goals_met:
+        print("Goals completed: ✓ 3 races started, ✓ 1 podium achieved")
+        print(f"They offer improved terms: £{renewal_bonus} signing bonus + {rate_increase:.0f}% better payments.")
+    else:
+        print("Goals not fully completed. They offer standard renewal terms.")
+
+    choice = input("\nRenew the sponsorship? (y/n): ").strip().lower()
+
+    if choice == "y":
+        # Extend contract
+        state.sponsor_end_year = time.year + 2  # extend for 2 more years
+        state.sponsor_start_year = time.year
+        
+        # Reset counters for new contract
+        state.sponsor_races_started = 0
+        state.sponsor_podiums = 0
+        state.sponsor_goals_races_started = False
+        state.sponsor_goals_podium = False
+        
+        # Apply bonuses
+        if renewal_bonus > 0:
+            state.money += renewal_bonus
+            state.last_week_income += renewal_bonus
+            state.last_week_sponsor_income += renewal_bonus
+            state.constructor_earnings += renewal_bonus
+            
+            mult = getattr(state, "sponsor_rate_multiplier", 1.0)
+            state.sponsor_rate_multiplier = min(2.0, mult + rate_increase)
+        
+        team_name = state.player_constructor or "Your team"
+        state.news.append(f"{team_name} renews sponsorship with {state.sponsor_name} through {state.sponsor_end_year}.")
+        if renewal_bonus > 0:
+            state.news.append(f"Bonus for meeting goals: £{renewal_bonus} + improved payment rates.")
+    else:
+        # End sponsorship
+        state.sponsor_active = False
+        state.news.append(f"{state.sponsor_name} sponsorship ends - no renewal agreed.")
+
+
 def maybe_offer_sponsor(state, time):
     """
     Offer the first sponsor once the team has:
