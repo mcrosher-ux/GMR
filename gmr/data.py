@@ -102,8 +102,97 @@ drivers = [
         "age": 35,
         "country": "USA",
     },
-
-    # Extreme test archetypes (AI-only, constructor: Test) – still get ages
+    {
+        "name": "Otto Schmidt", "constructor": "Independent",
+        "pace": 4, "consistency": 6,
+        "aggression": 4, "mechanical_sympathy": 6, "wet_skill": 4,
+        "fame": 0,
+        "age": 43,
+        "country": "Switzerland",
+    },
+    {
+        "name": "Roberto Silva", "constructor": "Independent",
+        "pace": 5, "consistency": 4,
+        "aggression": 7, "mechanical_sympathy": 4, "wet_skill": 5,
+        "fame": 0,
+        "age": 36,
+        "country": "Spain",
+    },
+    {
+        "name": "Jack Thompson", "constructor": "Independent",
+        "pace": 6, "consistency": 5,
+        "aggression": 5, "mechanical_sympathy": 5, "wet_skill": 5,
+        "fame": 1,
+        "age": 32,
+        "country": "UK",
+    },
+    # More British drivers
+    {
+        "name": "Reginald Hargrove", "constructor": "Independent",
+        "pace": 5, "consistency": 6,
+        "aggression": 4, "mechanical_sympathy": 6, "wet_skill": 5,
+        "fame": 0,
+        "age": 38,
+        "country": "UK",
+    },
+    {
+        "name": "Nigel Brooks", "constructor": "Independent",
+        "pace": 4, "consistency": 7,
+        "aggression": 3, "mechanical_sympathy": 7, "wet_skill": 6,
+        "fame": 0,
+        "age": 41,
+        "country": "UK",
+    },
+    {
+        "name": "Simon Whitaker", "constructor": "Independent",
+        "pace": 6, "consistency": 4,
+        "aggression": 6, "mechanical_sympathy": 4, "wet_skill": 4,
+        "fame": 1,
+        "age": 30,
+        "country": "UK",
+    },
+    # More Italian drivers
+    {
+        "name": "Giovanni Rossi", "constructor": "Independent",
+        "pace": 5, "consistency": 5,
+        "aggression": 5, "mechanical_sympathy": 5, "wet_skill": 5,
+        "fame": 0,
+        "age": 37,
+        "country": "Italy",
+    },
+    {
+        "name": "Marco Bianchi", "constructor": "Independent",
+        "pace": 6, "consistency": 6,
+        "aggression": 6, "mechanical_sympathy": 6, "wet_skill": 6,
+        "fame": 1,
+        "age": 34,
+        "country": "Italy",
+    },
+    {
+        "name": "Luca Ferrari", "constructor": "Independent",
+        "pace": 4, "consistency": 6,
+        "aggression": 4, "mechanical_sympathy": 6, "wet_skill": 7,
+        "fame": 0,
+        "age": 39,
+        "country": "Italy",
+    },
+    # More Spanish drivers
+    {
+        "name": "Carlos Ramirez", "constructor": "Independent",
+        "pace": 5, "consistency": 5,
+        "aggression": 7, "mechanical_sympathy": 3, "wet_skill": 4,
+        "fame": 0,
+        "age": 35,
+        "country": "Spain",
+    },
+    {
+        "name": "Diego Lopez", "constructor": "Independent",
+        "pace": 4, "consistency": 7,
+        "aggression": 3, "mechanical_sympathy": 7, "wet_skill": 5,
+        "fame": 0,
+        "age": 42,
+        "country": "Spain",
+    },
     {
         "name": "Rico Valente", "constructor": "Test",
         "pace": 9, "consistency": 3,
@@ -271,7 +360,7 @@ tracks = {
 
     "Bradley Fields": {
         "country": "UK",
-        "allowed_nationalities": ["UK"],
+        "allowed_nationalities": ["UK", "France", "Belgium", "Switzerland"],
         "engine_danger": 0.95,          # not too hard on engines
         "crash_danger": 1.00,           # club-level risk
         "pace_weight": 0.98,
@@ -292,7 +381,7 @@ tracks = {
         "suspension_importance": 1.00,
     },
     "Little Autodromo": {
-        "country": "Italy",
+        "country": "Italy",        
         "engine_danger": 1.00,
         "crash_danger": 1.02,
         "pace_weight": 1.05,            # bit more about raw speed

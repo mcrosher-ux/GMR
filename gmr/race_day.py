@@ -338,7 +338,7 @@ def build_event_grid(state, time, race_name, track_profile):
     # Collect eligible drivers by "team"/pool
     by_team = {}
     for d in drivers:
-        if not driver_enters_event(d, race_name, track_profile):
+        if not driver_enters_event(d, race_name, track_profile, state):
             continue
 
         # Block Test drivers if debug toggle is off
@@ -719,7 +719,7 @@ def simulate_qualifying(state, race_name, time, track_profile):
 
     for d in event_grid:
         # existing qualifying logic unchanged
-        if not driver_enters_event(d, race_name, track_profile):
+        if not driver_enters_event(d, race_name, track_profile, state):
             continue
 
         # Base from pace + a bit of consistency, with track bias
@@ -2267,7 +2267,10 @@ def handle_race_week(state, time):
                         if sub_choice in ("1", ""):
                             if state.money >= transport_cost:
                                 state.money -= transport_cost
-                                state.last_week_outgoings += transport_cost
+                                state.last_week_travel_cost += transport_cost
+                                if not hasattr(state, 'transport_paid_races'):
+                                    state.transport_paid_races = set()
+                                state.transport_paid_races.add(race_name)
                                 state.news.append(f"Paid £{transport_cost} for international transport to {race_name}.")
                                 print(f"Paid £{transport_cost}. Proceeding to the race.")
                             else:
