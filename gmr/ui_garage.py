@@ -423,6 +423,43 @@ def show_garage(state):
 
     print(f"\nTeam Prestige: {state.prestige:.1f}  (growing with results & reliability)")
 
+def maybe_name_or_rename_car(state, reason=None):
+    """
+    If you have a complete car (engine + chassis), let the player
+    name or rename it.
+
+    'reason' is just a flavour string like 'after installing a new engine'.
+    """
+    if not state.current_engine or not state.current_chassis:
+        return  # nothing to name yet
+
+    print("\n--- Car Designation ---")
+    current_name = getattr(state, "car_name", "")
+    if current_name:
+        print(f"Current car name: {current_name}")
+    else:
+        print("Your car doesn't have an official name yet.")
+
+    if reason:
+        print(reason)
+
+    # Suggest something like 'TeamName X1' if they have nothing yet
+    default_suggestion = None
+    if not current_name and state.player_constructor:
+        default_suggestion = f"{state.player_constructor} X1"
+
+    if default_suggestion:
+        print(f"(Suggestion: {default_suggestion})")
+
+    new_name = input("Enter a new car name (or press Enter to keep current): ").strip()
+
+    if new_name == "":
+        print("You keep the existing designation.")
+        return
+
+    state.car_name = new_name
+    print(f"Car will be known as: {state.car_name}")
+
 def rename_car(state):
     """
     Let the player give the current car an official designation,
@@ -825,39 +862,3 @@ def handle_garage_upgrades(state, time):
             print("Invalid choice.")
 
     return
-    """
-    If you have a complete car (engine + chassis), let the player
-    name or rename it.
-
-    'reason' is just a flavour string like 'after installing a new engine'.
-    """
-    if not state.current_engine or not state.current_chassis:
-        return  # nothing to name yet
-
-    print("\n--- Car Designation ---")
-    current_name = getattr(state, "car_name", "")
-    if current_name:
-        print(f"Current car name: {current_name}")
-    else:
-        print("Your car doesn't have an official name yet.")
-
-    if reason:
-        print(reason)
-
-    # Suggest something like 'TeamName X1' if they have nothing yet
-    default_suggestion = None
-    if not current_name and state.player_constructor:
-        default_suggestion = f"{state.player_constructor} X1"
-
-
-    if default_suggestion:
-        print(f"(Suggestion: {default_suggestion})")
-
-    new_name = input("Enter a new car name (or press Enter to keep current): ").strip()
-
-    if new_name == "":
-        print("You keep the existing designation.")
-        return
-
-    state.car_name = new_name
-    print(f"Car will be known as: {state.car_name}")
