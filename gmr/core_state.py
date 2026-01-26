@@ -260,3 +260,9 @@ def ensure_state_fields(state) -> None:
 
     if not hasattr(state, "gallant_driver_promo_done"):
         state.gallant_driver_promo_done = False
+
+    # Chassis development project fields
+    if not hasattr(state, "chassis_project_stat_target"):
+        state.chassis_project_stat_target = None
+    if not hasattr(state, "chassis_project_dev_bonus"):
+        state.chassis_project_dev_bonus = 0.0

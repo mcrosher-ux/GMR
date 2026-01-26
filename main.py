@@ -441,6 +441,7 @@ def run_game():
                 # ------------------------------
                 if state.chassis_project_active and state.current_chassis:
                     ch = state.current_chassis
+                    supplier_key = ch.get("supplier", "")
 
                     # Ensure slot fields exist (safe for old saves)
                     if "dev_slots" not in ch:
@@ -453,6 +454,8 @@ def run_game():
                         state.chassis_project_active = False
                         state.chassis_progress = 0.0
                         state.chassis_project_chassis_id = None
+                        state.chassis_project_stat_target = None
+                        state.chassis_project_dev_bonus = 0.0
                     else:
                         # Tie progress to a specific chassis; reset if you changed chassis
                         if state.chassis_project_chassis_id is None:
@@ -461,6 +464,8 @@ def run_game():
                             # Swapped to a different chassis: lose old progress, start fresh
                             state.chassis_project_chassis_id = ch["id"]
                             state.chassis_progress = 0.0
+                            state.chassis_project_stat_target = None
+                            state.chassis_project_dev_bonus = 0.0
 
                         dev_weekly_cost = 20  # extra money spent on experiments/materials
                         state.money -= dev_weekly_cost
@@ -480,7 +485,7 @@ def run_game():
                             # Higher insight (from test days) + mechanic skill = better results
                             # Quality ranges from ~0.0 (terrible) to ~1.4 (excellent)
                             # ------------------------------
-                            quality = (insight / 12.0) + (mech / 12.0) + dev_bonus
+                            quality = (insight / 12.0) + (mech / 12.0) + state.chassis_project_dev_bonus
                             quality = max(0.0, min(quality, 1.4))
 
                             # Base chances before quality:
@@ -496,11 +501,11 @@ def run_game():
                             roll = random.random()
                             if roll < bad_chance:
                                 # ---- BAD OUTCOME ----
-                                if stat_target == "aero":
+                                if state.chassis_project_stat_target == "aero":
                                     ch["aero"] = max(1, ch.get("aero", 1) - 1)
                                     outcome = "A development misstep harms airflow (-1 aero)."
 
-                                elif stat_target == "suspension":
+                                elif state.chassis_project_stat_target == "suspension":
                                     ch["suspension"] = max(1, ch.get("suspension", 3) - 1)
                                     outcome = "A development misstep ruins the suspension geometry (-1 suspension)."
 
@@ -511,11 +516,11 @@ def run_game():
 
                             elif roll < bad_chance + small_chance:
                                 # ---- SMALL GAIN ----
-                                if stat_target == "aero":
+                                if state.chassis_project_stat_target == "aero":
                                     ch["aero"] = ch.get("aero", 1) + 1
                                     outcome = "Your mechanics find modest aerodynamic gains (+1 aero)."
 
-                                elif stat_target == "suspension":
+                                elif state.chassis_project_stat_target == "suspension":
                                     ch["suspension"] = ch.get("suspension", 3) + 1
                                     outcome = "Small handling gains from suspension refinement (+1 suspension)."
 
@@ -525,14 +530,14 @@ def run_game():
 
                             else:
                                 # ---- BIG GAIN ----
-                                if stat_target == "aero":
+                                if state.chassis_project_stat_target == "aero":
                                     delta = 2
                                     if quality > 1.1 and random.random() < 0.25:
                                         delta = 3
                                     ch["aero"] = ch.get("aero", 1) + delta
                                     outcome = f"Major aerodynamic breakthrough on your chassis (+{delta} aero)."
 
-                                elif stat_target == "suspension":
+                                elif state.chassis_project_stat_target == "suspension":
                                     delta = 2
                                     if quality > 1.1 and random.random() < 0.20:
                                         delta = 3

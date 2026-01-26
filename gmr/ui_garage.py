@@ -590,10 +590,39 @@ def manage_chassis_development(state):
         state.chassis_project_active = not state.chassis_project_active
         if state.chassis_project_active:
             print("\nYour mechanics begin a long-term development program on the current chassis.")
+            
+            # Choose development target
+            while True:
+                print("\nWhich aspect of the chassis would you like to focus development on?")
+                print("1. Aerodynamics (improves cornering speed)")
+                print("2. Suspension (improves handling and traction)")
+                print("3. Weight reduction (improves acceleration and top speed)")
+                
+                target_choice = input("> ").strip()
+                if target_choice == "1":
+                    state.chassis_project_stat_target = "aero"
+                    break
+                elif target_choice == "2":
+                    state.chassis_project_stat_target = "suspension"
+                    break
+                elif target_choice == "3":
+                    state.chassis_project_stat_target = "weight"
+                    break
+                else:
+                    print("Invalid choice. Please select 1-3.")
+            
+            # Calculate dev bonus (player teams get a base bonus)
+            state.chassis_project_dev_bonus = 0.0  # Player teams start with no bonus
+            
             state.chassis_progress = 0.0
             state.chassis_project_chassis_id = ch["id"]
+            
+            target_names = {"aero": "aerodynamics", "suspension": "suspension", "weight": "weight reduction"}
+            print(f"\nDevelopment program started, focusing on {target_names[state.chassis_project_stat_target]}.")
         else:
             print("\nYou suspend the chassis development program for now.")
+            state.chassis_project_stat_target = None
+            state.chassis_project_dev_bonus = 0.0
         input("\nPress Enter to return to the Garage menu...")
     else:
         return

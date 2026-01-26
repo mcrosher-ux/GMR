@@ -836,16 +836,16 @@ def maybe_rival_interaction(state, time):
             "options": [
                 ("Share information openly", "prestige", 0.5, "tech_bonus", 0.3),
                 ("Share but request payment", "money", 100, "tech_bonus", 0.2),
-                ("Decline - keep secrets", "prestige", -0.2, "no_bonus"),
+                ("Decline - keep secrets", "prestige", -0.2),
             ]
         },
         {
             "scenario": "paddock incident",
             "description": "A heated argument breaks out in the paddock between your team and a rival.",
             "options": [
-                ("Defuse situation diplomatically", "prestige", 0.3, "no_penalty"),
-                ("Stand your ground firmly", "prestige", -0.1, "intimidation"),
-                ("Escalate the confrontation", "prestige", -0.8, "penalty"),
+                ("Defuse situation diplomatically", "prestige", 0.3),
+                ("Stand your ground firmly", "prestige", -0.1),
+                ("Escalate the confrontation", "prestige", -0.8),
             ]
         },
         {
@@ -853,8 +853,8 @@ def maybe_rival_interaction(state, time):
             "description": "Rumors circulate that a rival team is interested in poaching your driver.",
             "options": [
                 ("Offer driver better contract", "money", -50, "loyalty", 1),
-                ("Ignore rumors and focus on racing", "prestige", 0.1, "no_change"),
-                ("Publicly criticize rival team", "prestige", -0.4, "controversy"),
+                ("Ignore rumors and focus on racing", "prestige", 0.1),
+                ("Publicly criticize rival team", "prestige", -0.4),
             ]
         }
     ]
