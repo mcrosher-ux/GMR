@@ -1,6 +1,6 @@
 # gmr/ui_garage.py
 import random
-from gmr.constants import ENZONI_PRESTIGE_REQUIREMENT
+from gmr.constants import ENZONI_PRESTIGE_REQUIREMENT, calculate_garage_benefits
 from gmr.world_logic import describe_career_phase
 from gmr.data import engines, chassis_list
 from gmr.world_logic import calculate_car_speed
@@ -240,6 +240,9 @@ def show_chassis_shop(state):
     # A new chassis arrives at its max condition
     state.chassis_wear = state.chassis_max_condition
 
+    # Reset chassis insight since this is a new chassis to understand
+    state.chassis_insight = 0.0
+
 
     # Recalculate combined car speed using engine + chassis
     if state.current_engine:
@@ -271,13 +274,28 @@ def show_chassis_shop(state):
 def show_garage(state):
     garage = state.garage
     print("\n=== Garage / Car Info ===")
-    print(f"Garage Level: {garage.level}")
+    print(f"Garage Level: {garage.upgrade_level} ({len(garage.upgrades)} upgrades installed)")
     print(f"Base Weekly Cost: £{garage.base_cost}")
     print(f"Staff Count: {garage.staff_count} (Salary £{garage.staff_salary} each)")
     print(f"Customer Parts Only: {garage.customer_parts_only}")
     print(f"R&D Enabled: {garage.r_and_d_enabled}")
     print(f"Factory Team: {garage.factory_team}")
-    print(f"Mechanic Skill: {garage.mechanic_skill}/10")
+    print(f"Mechanic Skill: {garage.get_effective_mechanic_skill()}/10 ({garage.mechanic_skill} base + {garage.get_effective_mechanic_skill() - garage.mechanic_skill} from upgrades)")
+
+    # Show installed upgrades
+    if garage.upgrades:
+        print(f"Installed Upgrades: {', '.join(garage.upgrades)}")
+
+    # Show current upgrade benefits
+    benefits = calculate_garage_benefits(garage)
+    if benefits["repair_discount"] > 0 or benefits["repair_speed_bonus"] > 0 or benefits["mechanic_skill_bonus"] > 0:
+        print("\nUpgrade Benefits:")
+        if benefits["repair_discount"] > 0:
+            print(f"  • Repairs {benefits['repair_discount']*100:.0f}% cheaper")
+        if benefits["repair_speed_bonus"] > 0:
+            print(f"  • Repairs {benefits['repair_speed_bonus']*100:.0f}% more effective")
+        if benefits["mechanic_skill_bonus"] > 0:
+            print(f"  • +{benefits['mechanic_skill_bonus']} mechanic skill")
 
     print("\nYour Car:")
      
@@ -316,6 +334,11 @@ def show_garage(state):
             print("    Development program: Completed for this chassis design")
         else:
             print("    Development program: Inactive")
+
+        # Chassis insight (understanding gained from test days)
+        insight = getattr(state, "chassis_insight", 0.0)
+        insight_desc = "none" if insight < 0.5 else f"{insight:.1f}/12"
+        print(f"    Chassis insight: {insight_desc} (improves development quality)")
     else:
         print("  Chassis: None installed")
 
@@ -437,7 +460,8 @@ def can_book_test_day(state, time):
 def apply_chassis_test(state):
     """
     Apply a single test day's worth of learning to the current chassis.
-    Uses diminishing returns so the first few sessions matter most.
+    Increases chassis_insight (0-12), which improves development quality.
+    Uses diminishing returns so early tests matter most.
     """
     if not state.current_chassis:
         return 0.0  # nothing to learn about
@@ -459,7 +483,8 @@ def apply_chassis_test(state):
 def handle_test_day(state, time):
     """
     Book and run a local test day.
-    Costs money, gated by cooldown, and increases chassis_insight.
+    Costs £150, increases chassis_insight (0-12), which improves development quality.
+    Available every 8 weeks. Insight resets when you change chassis.
     """
     print("\n=== Private Test Day ===")
 
@@ -480,6 +505,7 @@ def handle_test_day(state, time):
     print(f"A local circuit offers you a private test day for £{TEST_DAY_COST}.")
     print("You and your mechanics will spend the day pounding around,")
     print("collecting notes and gradually understanding the chassis better.")
+    print("This increases your 'chassis insight', which improves development quality.")
     print("\nProceed with booking this test day? (y/n)")
 
     choice = input("> ").strip().lower()
@@ -554,6 +580,7 @@ def manage_chassis_development(state):
     print("When active, you pay extra each week for your mechanics")
     print("to work on the current chassis. Occasionally they will")
     print("find gains (or make a mistake) that permanently changes its stats.")
+    print("Higher chassis insight (from test days) improves success rates.")
     print("\n1. Toggle program on/off")
     print("2. Back to Garage menu")
 
@@ -601,7 +628,9 @@ def handle_repairs(state):
 
             missing = state.engine_max_condition - state.engine_wear
             # Each % point costs £4 – not pocket change, but cheaper than a new engine
-            cost = int(missing * 4)
+            base_cost = int(missing * 4)
+            cost_multiplier = state.garage.get_repair_cost_multiplier()
+            cost = int(base_cost * cost_multiplier)
 
             print(
                 f"\nEngine refurbish cost: £{cost} to restore from "
@@ -635,7 +664,9 @@ def handle_repairs(state):
 
             missing = cap - state.chassis_wear
             # Chassis work is a bit cheaper per % than engine internals
-            cost = int(missing * 3)
+            base_cost = int(missing * 3)
+            cost_multiplier = state.garage.get_repair_cost_multiplier()
+            cost = int(base_cost * cost_multiplier)
 
             print(f"\nChassis overhaul cost: £{cost} to restore from {state.chassis_wear:.0f}% to {cap:.0f}%.")
             confirm = input("Proceed with chassis overhaul? (y/n): ").strip().lower()
@@ -663,7 +694,108 @@ def handle_repairs(state):
         else:
             print("Invalid choice.")
 
-def maybe_name_or_rename_car(state, reason=None):
+def handle_garage_upgrades(state, time):
+    """
+    Menu for purchasing garage upgrades that provide various benefits.
+    """
+    from gmr.constants import GARAGE_UPGRADES, get_available_garage_upgrades
+
+    while True:
+        print("\n=== Garage Upgrades ===")
+        print(f"Current garage level: {state.garage.upgrade_level}")
+        print(f"Installed upgrades: {', '.join(state.garage.upgrades) if state.garage.upgrades else 'None'}")
+
+        # Show current benefits
+        benefits = calculate_garage_benefits(state.garage)
+        print("\nCurrent benefits:")
+        if benefits["repair_discount"] > 0:
+            print(f"  • {benefits['repair_discount']*100:.0f}% repair cost discount")
+        if benefits["repair_speed_bonus"] > 0:
+            print(f"  • {benefits['repair_speed_bonus']*100:.0f}% faster repairs")
+        if benefits["mechanic_skill_bonus"] > 0:
+            print(f"  • +{benefits['mechanic_skill_bonus']} mechanic skill")
+        if benefits["r_and_d_enabled"]:
+            print("  • Research & Development enabled")
+
+        available_upgrades = get_available_garage_upgrades(state.garage, time.year)
+
+        if not available_upgrades:
+            print("\nNo upgrades currently available.")
+            print("Check back later as technology advances.")
+            input("\nPress Enter to return to the Garage menu...")
+            return
+
+        print("\nAvailable upgrades:")
+        for i, upgrade_id in enumerate(available_upgrades, 1):
+            upgrade = GARAGE_UPGRADES[upgrade_id]
+            print(f"{i}. {upgrade['name']} - £{upgrade['cost']}")
+            print(f"   {upgrade['description']}")
+
+            # Show benefits
+            benefits_text = []
+            for benefit_key, benefit_value in upgrade["benefits"].items():
+                if benefit_key == "repair_discount":
+                    benefits_text.append(f"{benefit_value*100:.0f}% cheaper repairs")
+                elif benefit_key == "repair_speed_bonus":
+                    benefits_text.append(f"{benefit_value*100:.0f}% faster repairs")
+                elif benefit_key == "mechanic_skill_bonus":
+                    benefits_text.append(f"+{benefit_value} mechanic skill")
+                elif benefit_key == "r_and_d_enabled":
+                    benefits_text.append("enables R&D")
+
+            if benefits_text:
+                print(f"   Benefits: {', '.join(benefits_text)}")
+
+            # Show requirements
+            if upgrade["requirements"]:
+                print(f"   Requires: {', '.join(upgrade['requirements'])}")
+
+            print(f"   Available from: {upgrade['year_available']}")
+            print()
+
+        print(f"{len(available_upgrades) + 1}. Back to Garage menu")
+
+        choice = input("> ").strip()
+
+        if choice == str(len(available_upgrades) + 1) or choice.lower() == "back":
+            break
+
+        try:
+            upgrade_index = int(choice) - 1
+            if 0 <= upgrade_index < len(available_upgrades):
+                upgrade_id = available_upgrades[upgrade_index]
+                upgrade = GARAGE_UPGRADES[upgrade_id]
+
+                print(f"\nPurchase {upgrade['name']} for £{upgrade['cost']}?")
+                confirm = input("Confirm purchase? (y/n): ").strip().lower()
+
+                if confirm == "y":
+                    if state.money >= upgrade["cost"]:
+                        state.money -= upgrade["cost"]
+                        state.last_week_purchases += upgrade["cost"]
+                        state.garage.upgrades.append(upgrade_id)
+
+                        # Apply immediate benefits
+                        if "r_and_d_enabled" in upgrade["benefits"] and upgrade["benefits"]["r_and_d_enabled"]:
+                            state.garage.r_and_d_enabled = True
+
+                        print(f"\nUpgrade purchased! {upgrade['name']} is now active.")
+                        state.news.append(f"Garage upgraded: {upgrade['name']} installed, improving facilities.")
+
+                        # Update garage level based on upgrades
+                        state.garage.upgrade_level = len(state.garage.upgrades)
+
+                    else:
+                        print("You don't have enough money for this upgrade.")
+                        input("Press Enter to continue...")
+                else:
+                    print("Purchase cancelled.")
+            else:
+                print("Invalid choice.")
+        except ValueError:
+            print("Invalid choice.")
+
+    return
     """
     If you have a complete car (engine + chassis), let the player
     name or rename it.

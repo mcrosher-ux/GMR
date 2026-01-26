@@ -4,7 +4,7 @@ from gmr.data import drivers
 
 class GarageState:
     def __init__(self):
-        self.level = 0  # 0 = home shed
+        self.level = 0  # 0 = home shed, 1+ = upgraded facilities
         self.base_cost = 25  # weekly running cost
         self.staff_count = 1
         self.staff_salary = 10
@@ -13,6 +13,46 @@ class GarageState:
         self.r_and_d_enabled = False
         self.factory_team = False
         self.mechanic_skill = 3  # 1–10: how good your crew is for now
+
+        # Garage upgrade system
+        self.upgrade_level = 0  # 0 = basic shed, 1 = workshop, 2 = professional garage, etc.
+        self.upgrades = []  # list of purchased upgrades
+        self.repair_discount = 0.0  # percentage discount on repair costs (0.0-1.0)
+        self.repair_speed_bonus = 0.0  # percentage faster repairs (0.0-1.0)
+        self.mechanic_skill_bonus = 0  # additional mechanic skill from upgrades
+
+    def get_effective_mechanic_skill(self, state=None):
+        """Get total mechanic skill including upgrade bonuses and temporary bonuses."""
+        from gmr.constants import calculate_garage_benefits
+        benefits = calculate_garage_benefits(self)
+        skill = self.mechanic_skill + benefits["mechanic_skill_bonus"]
+
+        # Add temporary bonuses from weekly events
+        if state:
+            if hasattr(state, 'temp_mechanic_bonus') and state.temp_mechanic_bonus != 0:
+                skill += state.temp_mechanic_bonus
+                # Clear the bonus after use
+                state.temp_mechanic_bonus = 0
+            if hasattr(state, 'temp_morale_bonus') and state.temp_morale_bonus != 0:
+                skill += state.temp_morale_bonus
+                # Clear the bonus after use
+                state.temp_morale_bonus = 0
+
+        return skill
+
+    def get_repair_cost_multiplier(self):
+        """Get multiplier for repair costs (lower = cheaper)."""
+        from gmr.constants import calculate_garage_benefits
+        benefits = calculate_garage_benefits(self)
+        discount = benefits["repair_discount"]
+        return max(0.1, 1.0 - discount)  # Minimum 10% of original cost
+
+    def get_repair_speed_multiplier(self):
+        """Get multiplier for repair effectiveness (lower = faster/more effective)."""
+        from gmr.constants import calculate_garage_benefits
+        benefits = calculate_garage_benefits(self)
+        speed_bonus = benefits["repair_speed_bonus"]
+        return max(0.1, 1.0 - speed_bonus)  # Minimum 10% of original work needed
 
 class GameState:
     def __init__(self):
@@ -77,7 +117,7 @@ class GameState:
 
 
         # Testing & knowledge
-        self.chassis_insight = 0.0      # how well you "understand" the current chassis
+        self.chassis_insight = 0.0      # understanding of current chassis (0-12), gained via test days, resets on chassis change
         self.engine_insight = 0.0       # reserved for later engine work
         self.last_test_abs_week = 0     # absolute_week of last test day
 

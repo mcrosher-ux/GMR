@@ -68,3 +68,114 @@ def get_reliability_mult(time):
 
 def get_crash_mult(time):
     return ERA_CRASH_MULTIPLIER
+
+
+# Garage upgrade system
+GARAGE_UPGRADES = {
+    "basic_workshop": {
+        "name": "Basic Workshop",
+        "description": "Convert your home shed into a proper workshop with better tools and workspace.",
+        "cost": 500,
+        "year_available": 1947,
+        "benefits": {
+            "repair_discount": 0.1,  # 10% cheaper repairs
+            "mechanic_skill_bonus": 1,  # +1 mechanic skill
+        },
+        "requirements": [],
+    },
+    "repair_specialization": {
+        "name": "Repair Specialization",
+        "description": "Train your mechanics in efficient repair techniques.",
+        "cost": 800,
+        "year_available": 1948,
+        "benefits": {
+            "repair_speed_bonus": 0.2,  # 20% faster repairs (lower costs for same work)
+        },
+        "requirements": ["basic_workshop"],
+    },
+    "advanced_tools": {
+        "name": "Advanced Tools",
+        "description": "Invest in precision measuring equipment and specialized tools.",
+        "cost": 1200,
+        "year_available": 1949,
+        "benefits": {
+            "repair_discount": 0.15,  # Additional 15% discount (stacks)
+            "mechanic_skill_bonus": 1,  # Additional +1 mechanic skill
+        },
+        "requirements": ["basic_workshop"],
+    },
+    "research_facility": {
+        "name": "Research Facility",
+        "description": "Add a dedicated research area for studying chassis development.",
+        "cost": 2000,
+        "year_available": 1955,  # Research becomes more important in 1950s
+        "benefits": {
+            "r_and_d_enabled": True,  # Unlocks R&D features
+        },
+        "requirements": ["advanced_tools"],
+    },
+    "professional_garage": {
+        "name": "Professional Garage",
+        "description": "Expand to a full professional racing garage with multiple bays.",
+        "cost": 3000,
+        "year_available": 1952,
+        "benefits": {
+            "repair_discount": 0.2,  # Additional 20% discount
+            "repair_speed_bonus": 0.3,  # Additional 30% faster repairs
+            "mechanic_skill_bonus": 2,  # Additional +2 mechanic skill
+        },
+    },
+}
+
+
+def calculate_garage_benefits(garage):
+    """
+    Calculate effective garage benefits based on purchased upgrades.
+    Returns a dict with total benefits.
+    """
+    benefits = {
+        "repair_discount": 0.0,
+        "repair_speed_bonus": 0.0,
+        "mechanic_skill_bonus": 0,
+        "r_and_d_enabled": False,
+    }
+
+    for upgrade_id in garage.upgrades:
+        if upgrade_id in GARAGE_UPGRADES:
+            upgrade = GARAGE_UPGRADES[upgrade_id]
+            for benefit_key, benefit_value in upgrade["benefits"].items():
+                if benefit_key in benefits:
+                    if isinstance(benefits[benefit_key], bool):
+                        benefits[benefit_key] = benefits[benefit_key] or benefit_value
+                    else:
+                        benefits[benefit_key] += benefit_value
+
+    return benefits
+
+
+def get_available_garage_upgrades(garage, current_year):
+    """
+    Get list of upgrade IDs that are available for purchase.
+    """
+    available = []
+
+    for upgrade_id, upgrade in GARAGE_UPGRADES.items():
+        # Check if already purchased
+        if upgrade_id in garage.upgrades:
+            continue
+
+        # Check year requirement
+        if current_year < upgrade["year_available"]:
+            continue
+
+        # Check prerequisites
+        requirements_met = True
+        for req in upgrade["requirements"]:
+            if req not in garage.upgrades:
+                requirements_met = False
+                break
+
+        if requirements_met:
+            available.append(upgrade_id)
+
+    return available
