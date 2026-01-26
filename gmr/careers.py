@@ -1,5 +1,7 @@
 # gmr/careers.py
 import random
+from copy import deepcopy
+
 
 from gmr.data import drivers
 from gmr.world_logic import (
@@ -8,6 +10,20 @@ from gmr.world_logic import (
     get_regen_age_for_year,
     get_retirement_ages_for_year,
 )
+# Snapshot the initial driver list so we can restore it later
+STARTING_DRIVERS = deepcopy(drivers)
+
+
+def reset_driver_pool():
+    """
+    Reset the driver pool to its initial starting state.
+    Used when starting a brand-new career after bankruptcy or from menu.
+    """
+    drivers.clear()
+    drivers.extend(deepcopy(STARTING_DRIVERS))
+
+
+
 def era_fame_scale(year: int) -> float:
     if year <= 1951:
         return 0.35
