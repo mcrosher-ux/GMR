@@ -624,8 +624,8 @@ def maybe_fan_interaction(state, time):
     """
     Random fan interactions that can boost morale or cause issues.
     """
-    # 8% chance per week
-    if random.random() > 0.08:
+    # 4% chance per week (reduced from 8%)
+    if random.random() > 0.04:
         return
 
     team_name = state.player_constructor or "Your team"
@@ -720,8 +720,8 @@ def maybe_supplier_issue(state, time):
     """
     Random supplier problems that can affect car performance.
     """
-    # 6% chance per week
-    if random.random() > 0.06:
+    # 3% chance per week (reduced from 6%)
+    if random.random() > 0.03:
         return
 
     team_name = state.player_constructor or "Your team"
@@ -837,8 +837,8 @@ def maybe_rival_interaction(state, time):
     """
     Random interactions with rival teams that can create opportunities or conflicts.
     """
-    # 7% chance per week
-    if random.random() > 0.07:
+    # 4% chance per week (reduced from 7%)
+    if random.random() > 0.04:
         return
 
     team_name = state.player_constructor or "Your team"
