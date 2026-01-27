@@ -17,7 +17,12 @@ from gmr.careers import (
     maybe_refill_valdieri_drivers,
 
 )
-from gmr.sponsorship import maybe_offer_sponsor, maybe_gallant_leaf_advert, maybe_sponsor_media_event, maybe_driver_interview, maybe_technical_inspection, maybe_weather_preparation, maybe_fan_interaction, maybe_supplier_issue, maybe_rival_interaction
+from gmr.sponsorship import (
+    maybe_offer_sponsor,
+    maybe_gallant_leaf_advert,
+    maybe_sponsor_media_event,
+    maybe_weather_preparation,
+)
 from gmr.world_logic import maybe_add_weekly_rumour, calculate_car_speed, maybe_spawn_scuderia_valdieri
 from gmr.calendar import show_calendar
 from gmr.ui_finances import show_finances
@@ -217,13 +222,7 @@ def run_game():
         maybe_gallant_leaf_advert(state, time)
         maybe_sponsor_media_event(state, time)
 
-        # Random weekly events
-        maybe_driver_interview(state, time)
-        maybe_technical_inspection(state, time)
-        maybe_weather_preparation(state, time)
-        maybe_fan_interaction(state, time)
-        maybe_supplier_issue(state, time)
-        maybe_rival_interaction(state, time)
+   
 
 
         # -------- MAIN MENU --------
