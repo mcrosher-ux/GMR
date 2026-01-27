@@ -119,8 +119,8 @@ def maybe_sponsor_media_event(state, time):
     sponsor_name = state.sponsor_name
     sponsor_info = SPONSOR_TYPES.get(sponsor_name, {})
 
-    # 15% chance per week for a media event
-    if random.random() > 0.15:
+    # 8% chance per week for a media event (reduced from 15%)
+    if random.random() > 0.08:
         return
 
     press_events = sponsor_info.get("press_events", ["press_conference"])
@@ -371,8 +371,8 @@ def maybe_driver_interview(state, time):
     if not state.player_driver:
         return
 
-    # 12% chance per week
-    if random.random() > 0.12:
+    # 6% chance per week (reduced from 12%)
+    if random.random() > 0.06:
         return
 
     driver_name = state.player_driver.get("name", "your driver")
@@ -487,8 +487,8 @@ def maybe_technical_inspection(state, time):
     if not getattr(state, "demo_complete", False):
         return
 
-    # 10% chance per week
-    if random.random() > 0.10:
+    # 5% chance per week (reduced from 10%)
+    if random.random() > 0.05:
         return
 
     team_name = state.player_constructor or "Your team"
@@ -554,8 +554,8 @@ def maybe_weather_preparation(state, time):
     if not hasattr(state, 'pending_race_week') or not state.pending_race_week:
         return
 
-    # 15% chance when there's a pending race
-    if random.random() > 0.15:
+    # 8% chance when there's a pending race (reduced from 15%)
+    if random.random() > 0.08:
         return
 
     from gmr.calendar import generate_calendar_for_year
@@ -624,8 +624,8 @@ def maybe_fan_interaction(state, time):
     """
     Random fan interactions that can boost morale or cause issues.
     """
-    # 8% chance per week
-    if random.random() > 0.08:
+    # 4% chance per week (reduced from 8%)
+    if random.random() > 0.04:
         return
 
     team_name = state.player_constructor or "Your team"
@@ -720,8 +720,8 @@ def maybe_supplier_issue(state, time):
     """
     Random supplier problems that can affect car performance.
     """
-    # 6% chance per week
-    if random.random() > 0.06:
+    # 3% chance per week (reduced from 6%)
+    if random.random() > 0.03:
         return
 
     team_name = state.player_constructor or "Your team"
@@ -765,21 +765,35 @@ def maybe_supplier_issue(state, time):
     for i, option in enumerate(issue['options'], 1):
         desc = option[0]
         effects = []
-        for j in range(1, len(option), 2):
+        j = 1
+        while j < len(option):
             stat = option[j]
-            value = option[j+1]
-            if stat == "money":
-                effects.append(f"£{value}")
-            elif stat in ["engine", "chassis"]:
-                effects.append(f"{stat} health {value:+.1f}")
-            elif stat == "performance":
-                effects.append(f"car speed {value:+.1f}")
-            elif stat == "mechanic_skill":
-                effects.append(f"mechanic skill +{value}")
-            elif stat == "cost":
-                effects.append(f"£{value} saved")
+            # Check if this is a stat-value pair or a single flag
+            if j + 1 < len(option) and not isinstance(option[j+1], str):
+                # This is a stat-value pair
+                value = option[j+1]
+                if stat == "money":
+                    effects.append(f"£{value}")
+                elif stat in ["engine", "chassis"]:
+                    effects.append(f"{stat} health {value:+.1f}")
+                elif stat == "performance":
+                    effects.append(f"car speed {value:+.1f}")
+                elif stat == "mechanic_skill":
+                    effects.append(f"mechanic skill +{value}")
+                elif stat == "cost":
+                    effects.append(f"£{value} saved")
+                else:
+                    effects.append(f"{stat}: {value}")
+                j += 2  # Skip the value
             else:
-                effects.append(f"{stat}: {value}")
+                # This is a single flag/string, not a stat-value pair
+                if stat == "no_cost":
+                    effects.append("no additional cost")
+                elif stat == "risk":
+                    effects.append("increased risk of failure")
+                else:
+                    effects.append(stat)
+                j += 1  # Skip just this element
 
         print(f"{i}) {desc}")
         print(f"   Effects: {', '.join(effects)}\n")
@@ -823,8 +837,8 @@ def maybe_rival_interaction(state, time):
     """
     Random interactions with rival teams that can create opportunities or conflicts.
     """
-    # 7% chance per week
-    if random.random() > 0.07:
+    # 4% chance per week (reduced from 7%)
+    if random.random() > 0.04:
         return
 
     team_name = state.player_constructor or "Your team"
