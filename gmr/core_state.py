@@ -181,6 +181,9 @@ class GameState:
         self.loan_lender_name = None
         self.last_week_loan_interest = 0
 
+        # Tyres (sets in garage)
+        self.tyre_sets = 1
+
         # Has a bankruptcy rescue already been offered this week?
         self.bankruptcy_offered = False
 
@@ -217,6 +220,9 @@ def ensure_state_fields(state) -> None:
         state.last_week_appearance_income = 0
     if not hasattr(state, "travel_paid_week"):
         state.travel_paid_week = None
+
+    if not hasattr(state, "tyre_sets"):
+        state.tyre_sets = 1
 
 
     if not hasattr(state, "country"):

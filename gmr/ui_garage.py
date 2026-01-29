@@ -271,6 +271,35 @@ def show_chassis_shop(state):
         reason="A new chassis usually means a new 'model year' – you could give this spec its own name."
     )
 
+
+def show_tyre_shop(state):
+    print("\n=== Racecar Parts: Tyres ===")
+    print(f"Current tyre sets in garage: {getattr(state, 'tyre_sets', 0)}")
+    print("Price per set: £10")
+
+    qty_str = input("How many sets do you want to buy? (Enter to cancel): ").strip()
+    if qty_str == "":
+        return
+    if not qty_str.isdigit():
+        print("Invalid input. No purchase made.")
+        return
+
+    qty = int(qty_str)
+    if qty <= 0:
+        print("Please enter a positive number.")
+        return
+
+    total_cost = qty * 10
+    if total_cost > state.money:
+        print(f"You cannot afford that. Need £{total_cost}, but only have £{state.money}.")
+        return
+
+    state.money -= total_cost
+    state.last_week_purchases += total_cost
+    state.tyre_sets = getattr(state, "tyre_sets", 0) + qty
+
+    print(f"Purchased {qty} tyre set(s). You now have {state.tyre_sets} set(s).")
+
 def show_garage(state):
     garage = state.garage
     print("\n=== Garage / Car Info ===")
@@ -345,6 +374,7 @@ def show_garage(state):
 
     print(f"  Overall Speed: {state.car_speed}")
     print(f"  Overall Reliability: {state.car_reliability}")
+    print(f"  Tyre sets in garage: {getattr(state, 'tyre_sets', 0)}")
 
     # Quick verdict on where this thing probably sits in the field
     speed = state.car_speed
