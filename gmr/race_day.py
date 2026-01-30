@@ -589,6 +589,12 @@ def handle_race_week(state, time):
                     run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
                 state.completed_races.add(season_week)  # Mark as done to prevent loop
                 return
+
+            if getattr(state, "tyre_sets", 0) <= 0:
+                print("\nYou have no tyre sets available and cannot start the race.")
+                input("\nPress Enter to continue...")
+                run_ai_only_race(state, race_name, time, season_week, track_profile)
+                return
             
             # ✅ ONLY charge travel if you actually enter the event
             charge_race_travel_if_needed(state, time, race_name, track_profile)
