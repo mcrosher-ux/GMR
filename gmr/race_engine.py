@@ -262,15 +262,16 @@ class RaceSimulator:
             # Driver mechanical sympathy
             mech = player.get("mechanical_sympathy", 5)
             
-            # Base engine failure chance per stage (more punishing than AI for drama)
+            # Base engine failure chance per stage (calibrated for 1940s racing)
             reliability_mult = get_reliability_mult(self.time)
-            base_engine_fail = (11 - car_reliability) * 0.025 * reliability_mult
-            base_engine_fail *= (1 + (5 - mech) * 0.08)
+            base_engine_fail = (11 - car_reliability) * 0.012 * reliability_mult  # Reduced from 0.025
+            base_engine_fail *= (1 + (5 - mech) * 0.06)  # Reduced from 0.08
             base_engine_fail *= self.track_profile.get("engine_danger", 1.0)
             base_engine_fail *= self.race_length_factor / 3.0  # Per stage
             
-            # Poor condition massively increases risk
-            base_engine_fail *= (2.5 - condition_factor * 1.5)  # Up to 2.5x at 0% condition
+            # Condition affects reliability: good condition = more reliable
+            # 100% condition: 0.5x failure rate, 50% condition: 1.0x, 0% condition: 2.0x
+            base_engine_fail *= (2.0 - condition_factor * 1.5)
             
             # Player strategy affects risk
             base_engine_fail *= self.player_engine_mult
@@ -286,8 +287,8 @@ class RaceSimulator:
             wet_skill = player.get("wet_skill", 5)
             
             crash_mult = get_crash_mult(self.time)
-            base_crash = (11 - consistency) * 0.012 * crash_mult
-            base_crash *= (1 + (aggression - 5) * 0.08)
+            base_crash = (11 - consistency) * 0.008 * crash_mult  # Reduced from 0.012
+            base_crash *= (1 + (aggression - 5) * 0.06)  # Reduced from 0.08
             base_crash *= self.track_profile.get("crash_danger", 1.0)
             base_crash *= self.race_length_factor / 3.0  # Per stage
             

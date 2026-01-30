@@ -1090,6 +1090,51 @@ def show_driver_market(state):
             input("\nPress Enter to return to the Driver Market...")
             continue
 
+        # --- Check if you already have a driver (one-car team limit) ---
+        if state.player_driver and state.player_driver != selected_driver:
+            current_driver = state.player_driver
+            races_remaining = getattr(state, 'driver_contract_races', 0)
+            pay_per_race = getattr(state, 'driver_pay', 0)
+            
+            print(f"\n⚠️  You already have {current_driver['name']} under contract!")
+            print(f"   Races remaining: {races_remaining}")
+            print(f"   Pay per race: £{pay_per_race}")
+            
+            if races_remaining > 0:
+                buyout_cost = races_remaining * pay_per_race
+                print(f"\nTo sign {selected_driver['name']}, you must buy out {current_driver['name']}'s contract.")
+                print(f"Buyout cost: £{buyout_cost} (remaining contract value)")
+                print(f"Your funds: £{state.money}")
+                
+                if state.money < buyout_cost:
+                    print("\n❌ You cannot afford the buyout!")
+                    input("\nPress Enter to return to the Driver Market...")
+                    continue
+                
+                confirm_buyout = input(f"\nPay £{buyout_cost} to release {current_driver['name']}? (y/n): ").strip().lower()
+                if confirm_buyout != "y":
+                    print("You decide to keep your current driver.")
+                    input("\nPress Enter to return to the Driver Market...")
+                    continue
+                
+                # Process buyout
+                state.money -= buyout_cost
+                print(f"\n✓ {current_driver['name']} has been released from their contract.")
+                print(f"   Buyout paid: £{buyout_cost}")
+                
+                # Release driver back to independent
+                current_driver["constructor"] = "Independent"
+                state.player_driver = None
+                state.driver_contract_races = 0
+                state.driver_pay = 0
+            else:
+                # Contract expired, just release them
+                print(f"\n{current_driver['name']}'s contract has expired.")
+                current_driver["constructor"] = "Independent"
+                state.player_driver = None
+                state.driver_contract_races = 0
+                state.driver_pay = 0
+
         # Ask how many races you want to hire them for
         while True:
             races_str = input(

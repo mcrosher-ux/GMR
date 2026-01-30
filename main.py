@@ -529,6 +529,24 @@ def run_game():
         if can_do_pr_trip(state, time):
             print("  Note: Sponsor PR trip available – Business (7) → PR/networking trip.")
 
+        # WARNING: Check if race this week and missing critical components
+        if season_week in race_calendar and season_week not in state.completed_races and state.pending_race_week != season_week:
+            warnings = []
+            if not state.current_engine:
+                warnings.append("NO ENGINE")
+            if not state.current_chassis:
+                warnings.append("NO CHASSIS")
+            if not state.player_driver:
+                warnings.append("NO DRIVER")
+            if getattr(state, 'tyre_sets', 0) <= 0:
+                warnings.append("NO TYRES")
+            
+            if warnings:
+                print("\n" + "!" * 60)
+                for warning in warnings:
+                    print(f"\033[91m⚠️  WARNING: {warning} - Cannot race without this!\033[0m")
+                print("!" * 60)
+
         print("\n1. Calendar")
         print("2. Season Results")
         print("3. Finances")
