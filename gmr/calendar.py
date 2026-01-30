@@ -5,13 +5,41 @@ from gmr.constants import MONTHS
 
 import random
 
+# Track tiers for clash rules
+# Big races: Cannot clash with anything
+# Medium races: Can clash with small races only  
+# Small races: Can clash with other small races
+
+BIG_RACES = ["Vallone GP", "Ardennes Endurance GP", "Autódromo General San Martín", "Union Speedway"]
+MEDIUM_RACES = ["Marblethorpe GP", "Château-des-Prés GP", "Rougemont GP", "Copper State Circuit"]
+SMALL_RACES = ["Bradley Fields", "Little Autodromo", "Circuito da Estrada Velha"]
+
+
+def get_race_tier(race_name):
+    """Get the tier of a race for clash calculations."""
+    if race_name in BIG_RACES:
+        return "big"
+    elif race_name in MEDIUM_RACES:
+        return "medium"
+    else:
+        return "small"
+
+
 def generate_calendar_for_year(year):
     """
     Build the season calendar for a given year.
 
-    1947–1951 demo:
-    - Keep anchor events stable (Vallone week 20, Ardennes finale)
-    - Randomise the other race weeks within Mar–Oct with spacing rules
+    1947: European season only
+    1948+: Americas circuits added
+    
+    Clash rules:
+    - Big races: Never clash
+    - Medium races: Can clash with small races only
+    - Small races: Can clash with each other
+    - At least one race in a clash must be small
+    
+    Returns: dict mapping week -> race_name (for single races)
+             Also stores clashes in a separate structure accessed via get_clashes_for_year()
     """
     rng = random.Random(year)  # deterministic per year
 
@@ -19,69 +47,127 @@ def generate_calendar_for_year(year):
     allowed_weeks = list(range(9, 41))  # 9..40 inclusive
 
     cal = {}
+    clashes = {}  # week -> [race1, race2]
 
     # ---- Anchors (fixed) ----
     cal[20] = "Vallone GP"              # sponsor trigger week
     cal[40] = "Ardennes Endurance GP"   # season finale
 
-    # Indy 500 style one-off in 1950
-    if year == 1950:
-        cal[25] = "Union Speedway"       # mid-season American oval event
+    # Union Speedway from 1950
+    if year >= 1950:
+        cal[25] = "Union Speedway"
 
-    # Second Vallone stays late summer-ish but not fixed
-    # pick from Aug/Sep window: weeks 29–36 excluding 20/40
+    # Autódromo General San Martín from 1948 (Southern hemisphere = early year)
+    if year >= 1948:
+        buenos_aires_pool = [w for w in range(10, 15) if w not in cal]
+        if buenos_aires_pool:
+            cal[rng.choice(buenos_aires_pool)] = "Autódromo General San Martín"
+
+    # Second Vallone in late summer
     vallone2_pool = [w for w in range(29, 37) if w not in cal]
-    cal[rng.choice(vallone2_pool)] = "Vallone GP"
+    if vallone2_pool:
+        cal[rng.choice(vallone2_pool)] = "Vallone GP"
 
-    # ---- Fillers (randomised with spacing) ----
-    # Event list: same total as your current fixed calendar (9 races)
+    # ---- Fillers ----
     fillers = [
         "Bradley Fields", "Bradley Fields", "Bradley Fields",
         "Little Autodromo", "Little Autodromo", "Little Autodromo",
         "Marblethorpe GP",
         "Château-des-Prés GP",
     ]
+    
+    # Add Americas races from 1948
+    if year >= 1948:
+        fillers.extend([
+            "Circuito da Estrada Velha", "Circuito da Estrada Velha",
+            "Copper State Circuit",
+        ])
 
-    # Candidate weeks exclude anchors
     candidates = [w for w in allowed_weeks if w not in cal]
 
-    def take_week(min_week, max_week, min_gap=2):
+    def can_clash(existing_race, new_race):
+        """Check if two races can share a week."""
+        tier1 = get_race_tier(existing_race)
+        tier2 = get_race_tier(new_race)
+        
+        # Big races never clash
+        if tier1 == "big" or tier2 == "big":
+            return False
+        
+        # At least one must be small
+        if tier1 == "small" or tier2 == "small":
+            return True
+        
+        # Two medium = no clash
+        return False
+
+    def take_week(min_week, max_week, event, min_gap=2):
+        """Find a week for an event, possibly creating a clash."""
+        # First: try to find a clean week with proper spacing
         pool = [w for w in candidates if min_week <= w <= max_week]
         rng.shuffle(pool)
+        
         for w in pool:
-            # enforce gap from existing races
             if all(abs(w - ew) >= min_gap for ew in cal.keys()):
                 candidates.remove(w)
-                return w
-        # fallback: if we can't satisfy gap, just take any free week in range
+                return w, False
+        
+        # Second: try to create a valid clash with an existing race
+        clash_candidates = [w for w in range(min_week, max_week + 1) 
+                          if w in cal and w not in clashes and can_clash(cal[w], event)]
+        rng.shuffle(clash_candidates)
+        
+        if clash_candidates:
+            return clash_candidates[0], True
+        
+        # Fallback: any free week
         for w in pool:
             if w in candidates:
                 candidates.remove(w)
-                return w
-        return None
+                return w, False
+        
+        return None, False
 
-    # Rough seasonal placement buckets to keep the “shape” of the season
+    # Placement windows
     placement_windows = [
-        (9, 12),    # early spring
-        (13, 16),   # spring
-        (17, 19),   # pre-Vallone
-        (21, 24),   # early summer
-        (25, 28),   # mid summer
-        (29, 32),   # late summer
-        (33, 36),   # early autumn
-        (37, 39),   # pre-finale
+        (9, 12), (13, 16), (17, 19), (21, 24),
+        (26, 28), (29, 32), (33, 36), (37, 39),
     ]
+    
+    if year >= 1948:
+        placement_windows.extend([(14, 18), (22, 26), (30, 34)])
 
-    # Assign fillers to windows
     rng.shuffle(fillers)
-    for event, window in zip(fillers, placement_windows):
-        w = take_week(window[0], window[1], min_gap=2)
-        if w is None:
-            # absolute fallback: any candidate week
+    
+    for i, event in enumerate(fillers):
+        window = placement_windows[i % len(placement_windows)]
+        w, is_clash = take_week(window[0], window[1], event)
+        
+        if w is None and candidates:
             w = candidates.pop(0)
-        cal[w] = event
+            is_clash = False
+        
+        if w is not None:
+            if is_clash and w in cal:
+                existing = cal[w]
+                clashes[w] = [existing, event]
+                # Keep the "primary" race in cal for backwards compatibility
+            else:
+                cal[w] = event
+
+    # Store clashes globally for this year (hacky but simple)
+    _year_clashes[year] = clashes
 
     return dict(sorted(cal.items()))
+
+
+# Global storage for clashes by year
+_year_clashes = {}
+
+
+def get_clashes_for_year(year):
+    """Get the clash schedule for a year (must call generate_calendar_for_year first)."""
+    return _year_clashes.get(year, {})
 
 
 def format_week_date(time, season_week):
@@ -89,36 +175,42 @@ def format_week_date(time, season_week):
     Convert a season-week number into the month/week display
     using the time object.
     """
-    # Clone temp time so we don't mutate the real one
     temp = GameTime(time.year)
     temp.month = 0
     temp.week = 1
     temp.absolute_week = 1
 
-    # Advance until we reach the target week
     for _ in range(season_week - 1):
         temp.advance_week()
 
     return f"Week {temp.week}, {MONTHS[temp.month]}"
 
 
-
 def show_calendar(state, time, race_calendar):
     """
     Show the full season calendar with race weeks and simple status flags.
-    race_calendar must be the actual calendar used by the game loop.
     """
     current_season_week = get_season_week(time)
-
+    clashes = get_clashes_for_year(time.year)
 
     print("\n=== Season Calendar ===")
     print(f"Year: {time.year}")
     print("------------------------")
 
-    for week in sorted(race_calendar.keys()):
-        race_name = race_calendar[week]
+    # Collect all race weeks (including clash weeks)
+    all_weeks = set(race_calendar.keys()) | set(clashes.keys())
 
-        # Work out a simple status label
+    for week in sorted(all_weeks):
+        # Check if this week has a clash
+        if week in clashes:
+            clash_races = clashes[week]
+            race_display = f"{clash_races[0]} OR {clash_races[1]}"
+            is_clash = True
+        else:
+            race_display = race_calendar.get(week, "Unknown")
+            is_clash = False
+
+        # Status
         if week in state.completed_races:
             podium = state.podiums.get(week)
             if podium:
@@ -128,15 +220,21 @@ def show_calendar(state, time, race_calendar):
                 status = ", ".join(labels)
             else:
                 status = "Completed"
-
         elif state.pending_race_week == week and week == current_season_week:
             status = "Race this week"
-
         else:
             status = "Upcoming"
+            if is_clash:
+                status = "CHOOSE ONE"
 
         date_label = format_week_date(time, week)
-        print(f"{date_label}: {race_name}  [{status}]")
+        
+        if is_clash:
+            print(f"{date_label}: ⚔️ {race_display}  [{status}]")
+        else:
+            print(f"{date_label}: {race_display}  [{status}]")
 
     print("------------------------")
     print("Non-race weeks are not shown.")
+    if any(clashes):
+        print("⚔️ = Schedule clash — you must choose one race")

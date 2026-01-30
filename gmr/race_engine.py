@@ -203,10 +203,101 @@ class RaceSimulator:
                         stage_result["incidents"].append(random.choice(flavors))
                         break
         
-        # Remove DNF'd drivers
+        # Remove DNF'd drivers (AI)
         for d in drivers_to_remove:
             if d in self.current_positions:
                 self.current_positions.remove(d)
+        
+        # =========================================================================
+        # PLAYER INCIDENT CHECK - Engine failures and crashes for the player car
+        # =========================================================================
+        player = self.game_state.player_driver
+        if player and player in self.current_positions:
+            player_name = player.get("name")
+            
+            # Get player car stats
+            car_reliability = 5  # Default
+            if self.game_state.current_engine:
+                car_reliability = self.game_state.current_engine.get("reliability", 5)
+            
+            # Engine condition affects reliability
+            engine_wear = getattr(self.game_state, 'engine_wear', 100)
+            engine_health = getattr(self.game_state, 'engine_health', 100)
+            condition_factor = (engine_wear / 100) * (engine_health / 100)
+            
+            # Driver mechanical sympathy
+            mech = player.get("mechanical_sympathy", 5)
+            
+            # Base engine failure chance per stage (more punishing than AI for drama)
+            reliability_mult = get_reliability_mult(self.time)
+            base_engine_fail = (11 - car_reliability) * 0.025 * reliability_mult
+            base_engine_fail *= (1 + (5 - mech) * 0.08)
+            base_engine_fail *= self.track_profile.get("engine_danger", 1.0)
+            base_engine_fail *= self.race_length_factor / 3.0  # Per stage
+            
+            # Poor condition massively increases risk
+            base_engine_fail *= (2.5 - condition_factor * 1.5)  # Up to 2.5x at 0% condition
+            
+            # Player strategy affects risk
+            base_engine_fail *= self.player_engine_mult
+            
+            # Hot conditions
+            if self.is_hot:
+                heat_intensity = self.track_profile.get("heat_intensity", 1.0)
+                base_engine_fail *= (1.0 + heat_intensity * 0.6)
+            
+            # Crash chance
+            consistency = player.get("consistency", 5)
+            aggression = player.get("aggression", 5)
+            wet_skill = player.get("wet_skill", 5)
+            
+            crash_mult = get_crash_mult(self.time)
+            base_crash = (11 - consistency) * 0.012 * crash_mult
+            base_crash *= (1 + (aggression - 5) * 0.08)
+            base_crash *= self.track_profile.get("crash_danger", 1.0)
+            base_crash *= self.race_length_factor / 3.0  # Per stage
+            
+            # Player strategy affects crash risk
+            base_crash *= self.player_crash_mult
+            
+            # Wet conditions
+            if self.is_wet:
+                wet_factor = wet_skill / 10.0
+                rain_crash_mult = 1.50 - wet_factor * 0.35
+                base_crash *= rain_crash_mult
+            
+            base_crash *= self.grid_risk_mult
+            
+            # Roll for incidents
+            player_incident = None
+            if random.random() < base_engine_fail:
+                player_incident = "engine"
+            elif random.random() < base_crash:
+                player_incident = "crash"
+            
+            if player_incident:
+                # Player has an incident!
+                self.current_positions.remove(player)
+                self.dnf_drivers.append(player)
+                self.retire_reasons[player_name] = player_incident
+                self.active_drivers.discard(player_name)
+                
+                if player_incident == "engine":
+                    flavors = [
+                        f"💥 {player_name}'s engine lets go in a spectacular cloud of smoke!",
+                        f"💥 Terminal mechanical failure! {player_name} coasts to a stop.",
+                        f"💥 The engine gives up! {player_name}'s race is over.",
+                        f"💥 Oil smoke billows from {player_name}'s car — engine failure!",
+                    ]
+                else:
+                    flavors = [
+                        f"💥 {player_name} loses control and slides into the barriers!",
+                        f"💥 A mistake from {player_name}! The car spins off into the gravel!",
+                        f"💥 {player_name} crashes out of the race!",
+                        f"💥 Disaster! {player_name} hits the wall and is out!",
+                    ]
+                stage_result["incidents"].append(random.choice(flavors))
+                stage_result["player_dnf"] = player_incident
         
         # Calculate new performance for each remaining driver
         old_positions = list(self.current_positions)
@@ -382,7 +473,7 @@ def display_stage_results(state, race_name, stage_result, simulator):
         for ot in stage_result["overtakes"]:
             text = format_overtake_text(ot["overtaker"], ot["overtaken"], ot["new_position"])
             print(f"    {highlight_player(text)}")
-            state.news.append(f"OVERTAKE ({race_name}): {text}")
+            # Overtakes not added to news - too spammy for post-race summary
     
     # Show current standings
     standings = simulator.get_current_standings()
@@ -481,12 +572,22 @@ def run_interactive_race_stages(simulator, state, race_name, is_wet, is_hot):
         cumulative_mods["engine_fail_mult"] *= decision["engine_fail_mult"]
         cumulative_mods["crash_mult"] *= decision["crash_mult"]
         
+        # Update simulator's risk multipliers for this stage
+        simulator.player_engine_mult = decision["engine_fail_mult"]
+        simulator.player_crash_mult = decision["crash_mult"]
+        
         # Simulate the stage with player's chosen multiplier
         stage_result = simulator.simulate_stage(stage_idx, decision["performance_mult"])
         
         if stage_result:
             # Display what happened
             display_stage_results(state, race_name, stage_result, simulator)
+            
+            # Check if player DNF'd
+            if stage_result.get("player_dnf"):
+                print(f"\n  💀 YOUR RACE IS OVER!")
+                input("\n  Press Enter to continue...")
+                break
         
         # Pause between stages (except after last)
         if stage_idx < len(STAGE_LABELS) - 1:
@@ -627,9 +728,10 @@ def generate_stage_blurb(stage_label, is_hot, is_wet, long_race, pace_note=None,
     return " ".join(segments[:min(len(segments), 5)])
 
 
-def choose_stage_strategy(stage_label, is_wet, is_hot):
+def choose_stage_strategy(stage_label, is_wet, is_hot, state=None):
     """
     Player choice for a race stage. Returns multipliers for performance, engine risk, crash risk.
+    Also accumulates wear on state if provided.
     """
     print(f"\n=== Race Update: {stage_label} ===")
     if is_wet:
@@ -640,13 +742,23 @@ def choose_stage_strategy(stage_label, is_wet, is_hot):
         print("Track conditions are steady.")
 
     print("Choose your approach for this phase:")
-    print("1) Push hard (faster, higher risk)")
+    print("1) Push hard (faster, +40% wear)")
     print("2) Balanced (steady pace)")
-    print("3) Conserve (safer, slower)")
+    print("3) Conserve (safer, -30% wear)")
 
     choice = input("> ").strip()
 
+    # Track cumulative wear from stage choices
+    if state is not None:
+        if not hasattr(state, 'stage_wear_accumulator'):
+            state.stage_wear_accumulator = 0.0
+        if not hasattr(state, 'stage_count'):
+            state.stage_count = 0
+        state.stage_count += 1
+
     if choice == "1":
+        if state is not None:
+            state.stage_wear_accumulator += 1.4  # Push = 40% more wear
         return {
             "label": "Push hard",
             "performance_mult": 1.04,
@@ -654,6 +766,8 @@ def choose_stage_strategy(stage_label, is_wet, is_hot):
             "crash_mult": 1.20,
         }
     if choice == "3":
+        if state is not None:
+            state.stage_wear_accumulator += 0.7  # Conserve = 30% less wear
         return {
             "label": "Conserve",
             "performance_mult": 0.97,
@@ -661,6 +775,9 @@ def choose_stage_strategy(stage_label, is_wet, is_hot):
             "crash_mult": 0.85,
         }
 
+    # Default: balanced
+    if state is not None:
+        state.stage_wear_accumulator += 1.0
     return {
         "label": "Balanced",
         "performance_mult": 1.00,
@@ -1227,7 +1344,7 @@ def run_player_race_stages(state, race_name, is_wet, is_hot, track_profile, stag
                 ]
                 overtakes.append(random.choice(flavors))
 
-        choice = choose_stage_strategy(stage_label, is_wet, is_hot)
+        choice = choose_stage_strategy(stage_label, is_wet, is_hot, state)
         perf_mult *= choice["performance_mult"]
         engine_mult *= choice["engine_fail_mult"]
         crash_mult *= choice["crash_mult"]
@@ -1399,7 +1516,7 @@ def render_player_stage_output(state, race_name, stage_output, stage_overtakes=N
             print(f"\nPosition changes in {stage_label}:")
             for overtake in overtakes:
                 print(f"  • {highlight_player(overtake)}")
-                state.news.append(f"OVERTAKE ({race_name}, {stage_label}): {overtake}")
+                # Overtakes not added to news - too spammy for post-race summary
 
 
 def render_stage_overtakes_only(state, race_name, stage_overtakes):
@@ -1434,7 +1551,7 @@ def render_stage_overtakes_only(state, race_name, stage_overtakes):
             ]
             line = random.choice(flavors)
             print(f"  • {highlight_player(line)}")
-            state.news.append(f"OVERTAKE ({race_name}, {stage_label}): {line}")
+            # Overtakes not added to news - too spammy for post-race summary
 
 
 def choose_ai_stage_strategy(stage_label, driver, is_wet, is_hot, race_length_factor, car_reliability):
@@ -2154,9 +2271,150 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
     record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired)
 
 
+def get_qualifying_strategy_choice(state, track_profile, is_wet_quali):
+    """
+    Present the player with qualifying strategy options.
+    Returns a dict with performance modifiers and risk factors.
+    """
+    if not state.player_driver:
+        return None
+    
+    track_name = track_profile.get("name", "the circuit")
+    weather = "Wet" if is_wet_quali else "Dry"
+    
+    print(f"\n{'='*60}")
+    print(f"  🏁 QUALIFYING SESSION — {weather} Conditions")
+    print(f"{'='*60}")
+    
+    driver_name = state.player_driver.get("name", "Your driver")
+    aggression = state.player_driver.get("aggression", 5)
+    consistency = state.player_driver.get("consistency", 5)
+    
+    print(f"\n  {driver_name} is ready to set a qualifying time.")
+    print(f"  Driver traits: Aggression {aggression}/10, Consistency {consistency}/10")
+    
+    print(f"\n  Choose your qualifying approach:\n")
+    
+    print("  1. 🌅 GO OUT EARLY")
+    print("     Beat the traffic, get clean laps. Lower risk but track may")
+    print("     not be fully rubbered-in yet. Conservative but reliable.")
+    print("")
+    print("  2. ⏰ GO OUT LATE")
+    print("     Wait for optimal track conditions. Higher risk of traffic")
+    print("     or weather changes, but potentially faster lap times.")
+    print("")
+    print("  3. 🎯 BANKER LAP FIRST")
+    print("     Set a safe time early, then push harder on second run.")
+    print("     Balanced approach with two chances at a good time.")
+    print("")
+    print("  4. 💥 ALL-OUT ATTACK")
+    print("     Maximum aggression from the start. Push to the absolute")
+    print("     limit — could be pole or could be the barriers.")
+    print("")
+    print("  5. 🧘 CALCULATED PRECISION")
+    print("     Focus on perfect execution over raw pace. Minimize mistakes")
+    print("     but sacrifice some ultimate speed for consistency.")
+    
+    while True:
+        choice = input("\n  Your choice (1-5): ").strip()
+        if choice in ("1", "2", "3", "4", "5"):
+            break
+        print("  Please enter 1, 2, 3, 4, or 5.")
+    
+    # Define strategy effects
+    strategies = {
+        "1": {  # Go out early
+            "name": "Go Out Early",
+            "perf_bonus": -0.02,  # Slight pace disadvantage (track not optimal)
+            "variance_low": 0.96,  # Less variance (clean track)
+            "variance_high": 1.02,
+            "risk_factor": 0.05,  # Low risk of disaster
+            "upside_chance": 0.15,  # Low chance of exceptional lap
+            "flavor_good": "found clean air and set a solid banker lap",
+            "flavor_great": "nailed a perfect lap on the empty track — stunning!",
+            "flavor_bad": "struggled on the green track surface",
+            "flavor_disaster": "made an error on cold tyres and binned it",
+        },
+        "2": {  # Go out late
+            "name": "Go Out Late",
+            "perf_bonus": 0.03,  # Potential pace advantage (rubbered track)
+            "variance_low": 0.92,  # High variance
+            "variance_high": 1.08,
+            "risk_factor": 0.18,  # Medium-high risk
+            "upside_chance": 0.30,  # Good chance of special lap
+            "flavor_good": "timed the run perfectly as the track reached peak grip",
+            "flavor_great": "delivered a stunning final-minute lap on the rubbered circuit!",
+            "flavor_bad": "got stuck in traffic and couldn't get a clean lap",
+            "flavor_disaster": "ran out of time after traffic delays — disaster!",
+        },
+        "3": {  # Banker lap first
+            "name": "Banker Lap First",
+            "perf_bonus": 0.0,  # Neutral base performance
+            "variance_low": 0.95,  # Moderate variance
+            "variance_high": 1.05,
+            "risk_factor": 0.08,  # Low-medium risk
+            "upside_chance": 0.22,  # Decent chance of improvement
+            "flavor_good": "set a safe time then improved on the second run",
+            "flavor_great": "the banker lap was already quick, then the second run was even better!",
+            "flavor_bad": "couldn't improve on the second run",
+            "flavor_disaster": "spun on the improvement lap, left with the banker time",
+        },
+        "4": {  # All-out attack
+            "name": "All-Out Attack",
+            "perf_bonus": 0.05,  # Strong pace potential
+            "variance_low": 0.88,  # Very high variance
+            "variance_high": 1.12,
+            "risk_factor": 0.25,  # High risk
+            "upside_chance": 0.35,  # Good chance of brilliance
+            "flavor_good": "pushed hard and extracted maximum performance",
+            "flavor_great": "delivered an absolutely heroic lap on the ragged edge!",
+            "flavor_bad": "overdrove the car and lost time with minor mistakes",
+            "flavor_disaster": "pushed too hard and crashed into the barriers!",
+        },
+        "5": {  # Calculated precision
+            "name": "Calculated Precision",
+            "perf_bonus": -0.01,  # Slight pace sacrifice
+            "variance_low": 0.98,  # Very low variance
+            "variance_high": 1.02,
+            "risk_factor": 0.03,  # Very low risk
+            "upside_chance": 0.08,  # Rare to exceed expectations
+            "flavor_good": "executed a clean, controlled qualifying lap",
+            "flavor_great": "the perfectly judged lap was faster than expected!",
+            "flavor_bad": "played it too safe and left time on the table",
+            "flavor_disaster": "a moment of hesitation cost several tenths",
+        },
+    }
+    
+    strategy = strategies[choice]
+    
+    # Modify based on driver traits
+    # High aggression helps attack strategies, hurts conservative ones
+    aggression_effect = (aggression - 5) * 0.005
+    if choice == "4":  # All-out attack
+        strategy["perf_bonus"] += aggression_effect * 2
+        strategy["risk_factor"] -= aggression_effect  # Aggressive drivers handle it better
+    elif choice in ("1", "5"):  # Conservative strategies
+        strategy["perf_bonus"] -= aggression_effect  # Aggressive drivers get frustrated
+    
+    # High consistency reduces risk and variance
+    consistency_effect = (consistency - 5) * 0.01
+    strategy["risk_factor"] -= consistency_effect
+    strategy["variance_low"] += consistency_effect * 0.5
+    strategy["variance_high"] -= consistency_effect * 0.5
+    
+    # Wet conditions amplify everything
+    if is_wet_quali:
+        strategy["risk_factor"] *= 1.5
+        strategy["variance_low"] -= 0.02
+        strategy["variance_high"] += 0.03
+    
+    return strategy
+
+
 def simulate_qualifying(state, race_name, time, track_profile):
     """
     Simulate a single qualifying session for this race.
+    Now includes player strategy choice mini-game.
     """
     results = []
     grid_bonus = {}
@@ -2166,6 +2424,14 @@ def simulate_qualifying(state, race_name, time, track_profile):
     track_cons_w = track_profile.get("consistency_weight", 1.0)
 
     event_grid = build_event_grid(state, time, race_name, track_profile)
+    
+    # Get player strategy if they're in the grid
+    player_in_grid = state.player_driver and state.player_driver in event_grid
+    player_strategy = None
+    player_outcome = None
+    
+    if player_in_grid:
+        player_strategy = get_qualifying_strategy_choice(state, track_profile, is_wet_quali)
 
     for d in event_grid:
         # Track-specific pace weighting
@@ -2184,8 +2450,37 @@ def simulate_qualifying(state, race_name, time, track_profile):
             wet_factor = d.get("wet_skill", 5) / 10.0
             perf *= (0.9 + wet_factor * 0.3)
 
-        # Small variance in qualifying (more swingy than race)
-        perf *= random.uniform(0.94, 1.06)
+        # Apply player strategy effects
+        if d == state.player_driver and player_strategy:
+            # Apply base performance modifier
+            perf *= (1.0 + player_strategy["perf_bonus"])
+            
+            # Roll for outcome
+            roll = random.random()
+            
+            if roll < player_strategy["risk_factor"]:
+                # Disaster! Major time loss
+                perf *= random.uniform(0.82, 0.90)
+                player_outcome = "disaster"
+            elif roll < player_strategy["risk_factor"] + (1 - player_strategy["risk_factor"]) * player_strategy["upside_chance"]:
+                # Great lap! Exceeded expectations
+                perf *= random.uniform(1.04, 1.08)
+                player_outcome = "great"
+            elif roll < player_strategy["risk_factor"] + 0.35:
+                # Below expectations
+                perf *= random.uniform(0.94, 0.98)
+                player_outcome = "bad"
+            else:
+                # Good solid lap
+                perf *= random.uniform(0.99, 1.03)
+                player_outcome = "good"
+            
+            # Apply strategy-specific variance
+            variance = random.uniform(player_strategy["variance_low"], player_strategy["variance_high"])
+            perf *= variance
+        else:
+            # AI variance (same as before)
+            perf *= random.uniform(0.94, 1.06)
 
         results.append((d, perf))
 
@@ -2195,6 +2490,49 @@ def simulate_qualifying(state, race_name, time, track_profile):
     # Grid bonuses are a tiny advantage for qualifying position
     for i, (d, _perf) in enumerate(results):
         grid_bonus[d["name"]] = 1.00 - (i * 0.003)
+
+    # Find player position for impact reporting
+    player_pos = None
+    if player_in_grid:
+        for i, (d, _) in enumerate(results):
+            if d == state.player_driver:
+                player_pos = i + 1
+                break
+    
+    # Report player strategy outcome
+    if player_strategy and player_outcome:
+        print(f"\n{'='*60}")
+        print(f"  QUALIFYING RESULT")
+        print(f"{'='*60}")
+        
+        flavor = player_strategy.get(f"flavor_{player_outcome}", "completed qualifying")
+        driver_name = state.player_driver.get("name", "Your driver")
+        
+        outcome_emoji = {
+            "disaster": "💥",
+            "bad": "😓",
+            "good": "✅",
+            "great": "🌟",
+        }
+        
+        print(f"\n  {outcome_emoji.get(player_outcome, '🏎️')} {driver_name} {flavor}")
+        print(f"\n  Strategy: {player_strategy['name']}")
+        print(f"  Grid Position: P{player_pos}")
+        
+        if player_outcome == "great":
+            print(f"\n  💪 Excellent session! Your strategy paid off brilliantly.")
+        elif player_outcome == "good":
+            print(f"\n  👍 Solid qualifying. The strategy worked as planned.")
+        elif player_outcome == "bad":
+            print(f"\n  😤 Disappointing. The approach didn't quite work out.")
+        else:  # disaster
+            print(f"\n  😱 Nightmare qualifying! This will hurt in the race.")
+        
+        input("\n  Press Enter to continue...")
+        
+        # Store outcome for potential race effects
+        state.last_quali_strategy = player_strategy["name"]
+        state.last_quali_outcome = player_outcome
 
     # Qualifying summary for news
     if len(results) >= 2:
@@ -2223,7 +2561,8 @@ def simulate_qualifying(state, race_name, time, track_profile):
     # Results (Q1/Q2/Q3...) into news
     state.news.append("Qualifying results:")
     for pos, (d, _) in enumerate(results, start=1):
-        state.news.append(f"Q{pos}: {d['name']} ({d['constructor']})")
+        marker = " ⬅️ YOU" if d == state.player_driver else ""
+        state.news.append(f"Q{pos}: {d['name']} ({d['constructor']}){marker}")
 
     # Store quali results in state for overtake calculation
     state.last_quali_results = results
@@ -2727,15 +3066,33 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         state.prestige = max(0.0, min(100.0, state.prestige + change))
 
     # --- Post-race wear (player car only) ---
+    # Calculate wear multiplier from stage choices first (used by both sections)
+    avg_stage_wear = 1.0  # default
+    if state.player_driver:
+        stage_wear_acc = getattr(state, 'stage_wear_accumulator', 0.0)
+        stage_count = getattr(state, 'stage_count', 0)
+        
+        if stage_count > 0:
+            # Average wear multiplier from all stage decisions
+            avg_stage_wear = stage_wear_acc / stage_count
+        else:
+            # Fallback to pre-race risk_multiplier if no stages ran
+            avg_stage_wear = getattr(state, "risk_multiplier", 1.0)
+        
+        # Clear the accumulators for next race
+        state.stage_wear_accumulator = 0.0
+        state.stage_count = 0
+
     if state.player_driver:
         base_engine_wear = 8.0    # typical GP
         base_chassis_wear = 5.0   # chassis ages a bit slower
 
         danger_factor_engine = track_profile.get("engine_danger", 1.0)
         danger_factor_chassis = track_profile.get("crash_danger", 1.0)
-
-        engine_wear_loss = base_engine_wear * race_length_factor * danger_factor_engine
-        chassis_wear_loss = base_chassis_wear * race_length_factor * danger_factor_chassis
+        
+        # Apply stage-based wear: Push all stages = 1.4x, Conserve all = 0.7x
+        engine_wear_loss = base_engine_wear * race_length_factor * danger_factor_engine * avg_stage_wear
+        chassis_wear_loss = base_chassis_wear * race_length_factor * danger_factor_chassis * avg_stage_wear
 
         sus = int(state.current_chassis.get("suspension", 5)) if state.current_chassis else 5
         sus_importance = suspension_track_factor(track_profile)
@@ -2774,12 +3131,9 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         engine_base_wear = 4.0 * race_length_factor * track_profile.get("engine_danger", 1.0)
         chassis_base_wear = 3.0 * race_length_factor * track_profile.get("crash_danger", 1.0)
 
-        # Pace mode multiplies wear
-        pace = getattr(state, "risk_mode", "neutral")
-        risk_mult = getattr(state, "risk_multiplier", 1.0)
-
-        engine_wear = engine_base_wear * risk_mult
-        chassis_wear = chassis_base_wear * risk_mult
+        # Use the same stage-based wear multiplier
+        engine_wear = engine_base_wear * avg_stage_wear
+        chassis_wear = chassis_base_wear * avg_stage_wear
 
         # Extra punishment if you actually finished the full distance
         player_finished = any(d == state.player_driver for d, _ in finishers)
