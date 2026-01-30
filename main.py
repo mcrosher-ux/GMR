@@ -43,6 +43,7 @@ from gmr.race_day import handle_race_week
 from gmr.story import inject_demo_prologue, handle_bankruptcy_rescue
 from gmr.ui_business import show_business
 from gmr.ui_business import can_do_pr_trip
+from gmr.ui_world import show_world_economy
 from gmr.calendar import generate_calendar_for_year
 from gmr.core_state import ensure_state_fields
 
@@ -269,16 +270,17 @@ def run_game():
         print("4. Garage")
         print("5. Driver Market")
         print("6. Business & Contracts")
-        print("7. Settings")
+        print("7. World News & Economy")
+        print("8. Settings")
 
 
         if state.pending_race_week is None:
             # Normal case: no race locked in yet, you can advance time
-            print("8. Advance Week")
+            print("9. Advance Week")
         else:
             # Race is waiting this week; you *must* run the weekend before time can move on
             race_name = race_calendar[state.pending_race_week]
-            print(f"8. Enter race weekend ({race_name})")
+            print(f"9. Enter race weekend ({race_name})")
 
         choice = input("> ").strip()
 
@@ -375,6 +377,10 @@ def run_game():
             show_business(state, time)
 
         elif choice == "7":
+            # World News & Economy
+            show_world_economy(state, time)
+
+        elif choice == "8":
             # Settings submenu
             while True:
                 print("\n=== Settings ===")
@@ -407,7 +413,7 @@ def run_game():
                 else:
                     print("Invalid choice.")
 
-        elif choice == "8":
+        elif choice == "9":
             # Advance time OR, if we're already locked into a race weekend, run the race
             # Advance time OR, if we're already locked into a race weekend, run the race
             if state.pending_race_week is None:
@@ -659,6 +665,13 @@ def run_game():
 
                 # Actually move time forward
                 time.advance_week()
+                
+                # Tick the world economy (regional events, economic drift)
+                if hasattr(state, 'world_economy'):
+                    economy_news = state.world_economy.tick_week()
+                    for news_item in economy_news[:2]:  # Limit to 2 news items per week
+                        state.news.append(news_item)
+                
                 # Next main-loop iteration will detect if the NEW week is a race week
             else:
                 # ---- Locked into race weekend: run it ----
