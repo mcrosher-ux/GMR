@@ -1,6 +1,7 @@
 # gmr/core_state.py
 
 from gmr.data import drivers
+from gmr.world_economy import WorldEconomy
 
 class GarageState:
     def __init__(self):
@@ -190,6 +191,13 @@ class GameState:
         # Story / demo flags
         self.seen_prologue = False           # have we shown the opening story?
         self.demo_driver_death_done = False  # has the final fatal event fired yet?
+
+        # World economy system
+        self.world_economy = WorldEconomy()
+        
+        # Last race attendance tracking
+        self.last_race_attendance = 0
+        self.last_race_attendance_details = {}
 
     def reset_championship(self):
         self.points = {d["name"]: 0 for d in drivers}

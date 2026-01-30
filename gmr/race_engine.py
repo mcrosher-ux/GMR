@@ -22,6 +22,7 @@ from gmr.careers import (
     tick_driver_contract_after_race_end,
 )
 from gmr.story import maybe_trigger_demo_finale
+from gmr.world_economy import is_home_race, get_home_crowd_bonus
 
 STAGE_LABELS = [
     "Stage 1/3 — Opening Phase",
@@ -72,6 +73,9 @@ class RaceSimulator:
         self.player_perf_mult = 1.0
         self.player_engine_mult = 1.0
         self.player_crash_mult = 1.0
+        
+        # Track reported home race bonuses (only report once)
+        self._reported_home_bonus = set()
         
         # Stage tracking
         self.current_stage_idx = 0
@@ -247,6 +251,14 @@ class RaceSimulator:
                 heat_tol = d.get("heat_tolerance", 5)
                 heat_factor = 0.95 + (heat_tol / 10.0) * 0.10
                 stage_perf *= heat_factor
+            
+            # Home race bonus - drivers perform better in front of home crowds
+            if is_home_race(d, self.track_profile):
+                home_bonus = get_home_crowd_bonus(d, self.track_profile)
+                stage_perf *= home_bonus
+                # Only report once at start of race
+                if stage_idx == 0 and d.get("name") not in self._reported_home_bonus:
+                    self._reported_home_bonus.add(d.get("name"))
             
             # Apply player multipliers
             if d == self.game_state.player_driver:
@@ -2259,6 +2271,44 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
     race_length_factor = race_distance_km / 250.0
 
     # ------------------------------
+    # ATTENDANCE CALCULATION (World Economy)
+    # ------------------------------
+    attendance = 50000  # default
+    attendance_details = {}
+    
+    if hasattr(state, 'world_economy'):
+        from gmr.world_economy import COUNTRIES
+        track_country = track_profile.get("country", "Italy")
+        event_prestige = track_profile.get("fame_mult", 1.0) * 2  # Track prestige estimate
+        player_prestige = state.prestige if hasattr(state, 'prestige') else 0
+        
+        attendance, attendance_details = state.world_economy.calculate_attendance(
+            race_name, 
+            track_profile,
+            player_prestige,
+            event_prestige
+        )
+        
+        # Store for later use in prestige calculations
+        state.last_race_attendance = attendance
+        state.last_race_attendance_details = attendance_details
+        
+        # Display attendance news
+        attendance_news = state.world_economy.format_attendance_news(
+            race_name, attendance, attendance_details
+        )
+        state.news.append(attendance_news)
+        
+        # Check for any active events affecting this race
+        active_events = attendance_details.get("active_events", [])
+        if active_events:
+            events_str = ", ".join(active_events[:2])
+            if attendance_details.get("event_modifier", 1.0) > 1.0:
+                state.news.append(f"📈 Regional boost: {events_str}")
+            elif attendance_details.get("event_modifier", 1.0) < 1.0:
+                state.news.append(f"📉 Regional issues: {events_str}")
+
+    # ------------------------------
     # WEATHER: WET vs DRY + HOT DAYS
     # ------------------------------
 
@@ -2273,6 +2323,24 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
     event_grid = build_event_grid(state, time, race_name, track_profile)
     grid_size = len(event_grid)
     grid_risk_mult = 1.0 + max(0, grid_size - 12) * 0.01  # +1% per car above 12
+
+    # Check for home race heroes in the grid
+    home_heroes = []
+    track_country = track_profile.get("country", "")
+    for d in event_grid:
+        if is_home_race(d, track_profile):
+            fame = d.get("fame", 0)
+            if fame >= 3:  # Only report notable drivers
+                home_heroes.append(d.get("name"))
+    
+    if home_heroes:
+        if len(home_heroes) == 1:
+            state.news.append(f"🏠 Home race for {home_heroes[0]}! The local crowd cheers their hero.")
+        else:
+            heroes_str = ", ".join(home_heroes[:3])
+            if len(home_heroes) > 3:
+                heroes_str += f" and {len(home_heroes) - 3} others"
+            state.news.append(f"🏠 Home race for {heroes_str}! Local drivers will be fired up.")
 
     stage_incidents = precompute_ai_stage_incidents(
         event_grid,
@@ -2641,6 +2709,19 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
             mult = 1.0
 
         change = base_change * mult
+
+        # Step 3: Attendance multiplier (bigger crowds = more exposure = more prestige change)
+        if hasattr(state, 'world_economy') and hasattr(state, 'last_race_attendance'):
+            attendance_mult = state.world_economy.get_fame_modifier_from_attendance(
+                state.last_race_attendance
+            )
+            change *= attendance_mult
+            
+            # Log the effect if significant
+            if attendance_mult > 1.2:
+                state.news.append(f"📺 Huge crowd amplifies your reputation! (x{attendance_mult:.2f} prestige)")
+            elif attendance_mult < 0.8:
+                state.news.append(f"📉 Small crowd limits exposure. (x{attendance_mult:.2f} prestige)")
 
         before = state.prestige
         state.prestige = max(0.0, min(100.0, state.prestige + change))
