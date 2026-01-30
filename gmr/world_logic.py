@@ -145,18 +145,43 @@ def get_car_speed_for_track(state, track_profile):
 
     return round(car_speed, 1)
 
-def driver_enters_event(driver, race_name, track_profile, state=None):
+def driver_enters_event(driver, race_name, track_profile, state=None, time=None):
     """
     Decide if a driver enters an event.
 
     Patch C: Enzoni only do Italian races + Vallone + Ardennes (demo logic).
     Patch F: 'Test' drivers are debug-only and do not enter real races unless enabled.
+    Patch G: Gentleman drivers have selective entries (big races + random medium ones).
     """
+    from gmr.calendar import BIG_RACES, MEDIUM_RACES
+
     ctor = driver.get("constructor")
 
     # Patch F: test archetypes are for dev only
     if ctor == "Test":
         return TEST_DRIVERS_ENABLED
+
+    # Check appears_from_year for drivers who enter later
+    appears_from = driver.get("appears_from_year")
+    if appears_from and time:
+        if time.year < appears_from:
+            return False
+
+    # Gentleman drivers with selective entries (e.g., Prince Sagat)
+    if driver.get("selective_entries") and driver.get("gentleman_driver"):
+        # Always appear at big races
+        if race_name in BIG_RACES:
+            return True
+        
+        # 40% chance to appear at medium races (the prince is choosy)
+        if race_name in MEDIUM_RACES:
+            # Use driver name + race for deterministic but varied entries
+            seed = hash((driver.get("name", ""), race_name, time.year if time else 0))
+            rng = random.Random(seed)
+            return rng.random() < 0.4
+        
+        # Skip small races - beneath royalty
+        return False
 
     # Allow player driver if transport paid
     if state and driver == state.player_driver and race_name in getattr(state, 'transport_paid_races', set()):
@@ -449,190 +474,285 @@ def maybe_spawn_scuderia_valdieri(state, time, season_week, race_calendar):
 
 def maybe_add_weekly_rumour(state, time):
     """
-    Occasionally inject a bit of 'paddock gossip' into the news.
-    Now more reflective of game state for added immersion.
+    Inject contextual paddock gossip that reflects actual game events.
+    Rumors are now based on real happenings: upcoming races, weather, 
+    driver performance, stat changes, championship standings, etc.
     """
-    # Roughly 30% chance per week
-    if random.random() > 0.30:
+    # ~35% chance per week
+    if random.random() > 0.35:
         return
 
+    from gmr.data import drivers, tracks
+    from gmr.core_time import get_season_week
+    from gmr.calendar import generate_calendar_for_year
+    
     rumours = []
-
     team_name = state.player_constructor or "Your team"
-
-    # Generic flavour
-    rumours.append("Enzoni mechanics are rumoured to be testing a new chassis away from prying eyes.")
-    rumours.append("A small outfit from Sardinia is said to be building a strange low-slung special.")
-    rumours.append("Whispers in the paddock say prize money will be tightened next year.")
-    rumours.append("Old hands mutter that the post-war boom won't last forever.")
-    rumours.append(
-        f"Some wonder why {team_name} skipped a recent race — whispers of budget trouble."
-    )
-
-    # Enhanced media and atmospheric rumors
-    media_rumors = [
-        "NEWSPAPER HEADLINES: 'Racing's Golden Age' - papers celebrate the post-war motorsport renaissance.",
-        "RADIO BROADCASTS: Live race commentary becomes increasingly popular with the public.",
-        "PHOTO ESSAYS: Magazines feature stunning images of cars battling through the rain.",
-        "FAN CLUBS: Supporters' groups form around popular drivers and teams.",
-        "TECHNICAL ARTICLES: Engineering journals analyze the latest chassis innovations.",
-        "TRAVEL REPORTS: Journalists describe the unique atmosphere of each racing circuit.",
-        "DRIVER PROFILES: In-depth features explore the lives of racing personalities.",
-        "TEAM BACKSTAGE: Rare glimpses into garage operations and team dynamics.",
-    ]
-    rumours.extend(media_rumors)
-
-    # Atmospheric and crowd rumors
-    atmosphere_rumors = [
-        "CROWD ATMOSPHERE: The distinctive smell of castor oil and methanol fills the air.",
-        "TRACKSIDE VIBES: Marshals in their white coats direct traffic with military precision.",
-        "PIT LANE BUZZ: Mechanics shout instructions over the roar of engines during practice.",
-        "HOSPITALITY TENTS: Team principals network over champagne and canapés.",
-        "FAN ZONES: Spectators gather around temporary grandstands, sharing picnic lunches.",
-        "WEATHER WATCH: Forecasters predict challenging conditions for the upcoming race.",
-        "LOCAL COLOR: Each circuit has its own unique character and challenges.",
-        "POST-RACE TRADITION: Winners spray champagne as crowds cheer wildly.",
-    ]
-    rumours.extend(atmosphere_rumors)
-
-    # Recent race results - look at last race in history
-    if state.race_history:
-        last_race = state.race_history[-1]
-        if last_race["finishers"]:
-            winner = last_race["finishers"][0]
-            winner_name = winner["name"]
-            winner_constructor = winner.get("constructor", "Independent")
-            rumours.append(f"Paddock buzz: {winner_name} of {winner_constructor} dominated at {last_race['race']}, leaving rivals in the dust.")
-
-            # Enhanced race result rumors with media flavor
-            race_media_rumors = [
-                f"PRESS COVERAGE: '{winner_name} Triumphs!' - newspapers hail the dominant victory.",
-                f"RADIO COMMENTARY: Broadcasters praise {winner_constructor}'s strategic brilliance.",
-                f"PHOTO SPREAD: Magazine covers feature {winner_name}'s victory celebration.",
-                f"FAN REACTIONS: Supporters cheer wildly as {winner_name} takes the podium.",
-                f"TECHNICAL ANALYSIS: Engineers dissect {winner_constructor}'s winning setup.",
-                f"DRIVER QUOTES: {winner_name} credits team and car in post-race interviews.",
-            ]
-            rumours.extend(race_media_rumors)
-
-            # If player was in the race
-            player_in_race = any(f["name"] == (state.player_driver["name"] if state.player_driver else "") for f in last_race["finishers"] + last_race["dnfs"])
-            if player_in_race:
-                player_finish = None
-                for f in last_race["finishers"]:
-                    if f["name"] == state.player_driver["name"]:
-                        player_finish = f["pos"]
-                        break
-                if player_finish == 1:
-                    rumours.append(f"Everyone's talking about {team_name}'s stunning victory at {last_race['race']} — the champagne is flowing!")
-                    rumours.append(f"MEDIA FRENZY: Journalists surround {team_name} for victory interviews.")
-                elif player_finish and player_finish <= 3:
-                    rumours.append(f"{team_name} secured another podium at {last_race['race']}; sponsors are smiling.")
-                    rumours.append(f"PODIUM COVERAGE: Cameras capture the celebration as {team_name} sprays champagne.")
-                elif player_finish and player_finish > 10:
-                    rumours.append(f"Whispers suggest {team_name} struggled at {last_race['race']} — perhaps reliability issues?")
-                    rumours.append(f"POST-RACE ANALYSIS: Experts question {team_name}'s strategy and setup.")
-
-                # DNF rumors with media context
-                player_dnf = any(d["name"] == state.player_driver["name"] for d in last_race["dnfs"])
-                if player_dnf:
-                    dnf_reason = next((d["reason"] for d in last_race["dnfs"] if d["name"] == state.player_driver["name"]), "unknown")
-                    if dnf_reason == "engine":
-                        rumours.append(f"Paddock gossip: {team_name}'s engine let them down again at {last_race['race']} — time for a rebuild?")
-                        rumours.append(f"ENGINE FAILURE: Journalists speculate about {team_name}'s reliability issues.")
-                    elif dnf_reason == "crash":
-                        rumours.append(f"Rumours circulate about {team_name}'s dramatic crash at {last_race['race']}; the car took a beating.")
-                        rumours.append(f"CRASH ANALYSIS: Marshals and journalists assess the incident at {last_race['race']}.")
-
-    # Weather rumors for upcoming races with atmospheric detail
-    from gmr.data import tracks
-    # Check if there's a pending race this week
-    if hasattr(state, 'pending_race_week') and state.pending_race_week:
-        from gmr.calendar import generate_calendar_for_year
-        race_calendar = generate_calendar_for_year(time.year)
-        if state.pending_race_week in race_calendar:
-            upcoming_race = race_calendar[state.pending_race_week]
-            track_profile = tracks.get(upcoming_race, {})
-            wet_chance = track_profile.get("wet_chance", 0.2)
-            hot_chance = track_profile.get("base_hot_chance", 0.2)
-            if wet_chance > 0.4:
-                rumours.append(f"Weather scouts predict tricky conditions at {upcoming_race} — rain could play havoc with the race.")
-                rumours.append(f"RAIN PREPARATIONS: Teams practice wet-weather setups ahead of {upcoming_race}.")
-            elif hot_chance > 0.4:
-                rumours.append(f"Hot weather expected at {upcoming_race}; teams are preparing for tire wear and overheating.")
-                rumours.append(f"HEAT MANAGEMENT: Engineers focus on cooling systems for the scorching {upcoming_race}.")
-
-    # Money-related with media context
-    if state.money < 500:
-        rumours.append(
-            f"{team_name} are rumoured to be behind on paying suppliers – "
-            "some mechanics are said to be working on IOUs."
-        )
-        rumours.append(f"FINANCIAL WHISPERS: Journalists speculate about {team_name}'s financial difficulties.")
-    elif state.money > 4000:
-        rumours.append(
-            f"Other privateers grumble that {team_name} are 'rolling in it' compared to most outfits."
-        )
-        rumours.append(f"SUCCESS STORIES: Media highlights {team_name}'s impressive financial position.")
-
-    # Enhanced sponsor-related rumors
+    season_week = get_season_week(time)
+    race_calendar = generate_calendar_for_year(time.year)
+    
+    # =========================================================================
+    # UPCOMING RACE RUMORS
+    # =========================================================================
+    upcoming_races = []
+    for week in range(season_week, min(season_week + 4, 49)):
+        if week in race_calendar and week not in state.completed_races:
+            upcoming_races.append((week, race_calendar[week]))
+    
+    if upcoming_races:
+        next_week, next_race = upcoming_races[0]
+        track_profile = tracks.get(next_race, {})
+        
+        # Weather predictions
+        wet_chance = track_profile.get("wet_chance", 0.2)
+        hot_chance = track_profile.get("base_hot_chance", 0.2)
+        
+        if wet_chance > 0.5:
+            rumours.append(f"📰 Weather report: Heavy rain expected at {next_race}. Teams scrambling for wet setups.")
+            rumours.append(f"📰 Meteorologists warn of challenging conditions for {next_race} this weekend.")
+        elif wet_chance > 0.3:
+            rumours.append(f"📰 Mixed forecast for {next_race} — teams preparing for all conditions.")
+        
+        if hot_chance > 0.5:
+            rumours.append(f"📰 Heatwave warning for {next_race}! Cooling systems will be tested to the limit.")
+            rumours.append(f"📰 Mechanics checking radiators ahead of scorching conditions at {next_race}.")
+        
+        # Track characteristics
+        engine_danger = track_profile.get("engine_danger", 1.0)
+        crash_danger = track_profile.get("crash_danger", 1.0)
+        
+        if engine_danger > 1.2:
+            rumours.append(f"📰 {next_race} is notoriously hard on engines. Teams reinforcing their mechanics crews.")
+        if crash_danger > 1.2:
+            rumours.append(f"📰 {next_race} demands respect — it's claimed many careers over the years.")
+        
+        # Home race check
+        if state.player_driver:
+            player_country = state.player_driver.get("country", "")
+            track_country = track_profile.get("country", "")
+            if player_country and player_country == track_country:
+                driver_name = state.player_driver.get("name", "Your driver")
+                rumours.append(f"📰 Home race excitement! {driver_name} will have local crowd support at {next_race}.")
+        
+        # Prize money rumors
+        from gmr.constants import PRIZE_RULES, DEFAULT_PRIZE_TOP3
+        prize_rule = PRIZE_RULES.get(next_race)
+        if prize_rule:
+            top_prize = prize_rule.get("top3", DEFAULT_PRIZE_TOP3)[0]
+            if top_prize >= 500:
+                rumours.append(f"📰 Big money on offer at {next_race}! Winner takes home £{top_prize}.")
+    
+    # =========================================================================
+    # CHAMPIONSHIP STANDINGS RUMORS
+    # =========================================================================
+    if state.points:
+        sorted_standings = sorted(state.points.items(), key=lambda x: x[1], reverse=True)
+        top_drivers = [(name, pts) for name, pts in sorted_standings if pts > 0][:5]
+        
+        if len(top_drivers) >= 2:
+            leader_name, leader_pts = top_drivers[0]
+            second_name, second_pts = top_drivers[1]
+            gap = leader_pts - second_pts
+            
+            if gap == 0:
+                rumours.append(f"📰 TITLE BATTLE! {leader_name} and {second_name} tied on {leader_pts} points!")
+            elif gap <= 3:
+                rumours.append(f"📰 Championship fight heating up: {leader_name} leads {second_name} by just {gap} points.")
+            elif gap >= 15:
+                rumours.append(f"📰 {leader_name} running away with it — {gap} point advantage looks unassailable.")
+            
+            # Check if player's driver is in contention
+            if state.player_driver:
+                player_name = state.player_driver.get("name")
+                player_pts = state.points.get(player_name, 0)
+                if player_pts > 0:
+                    player_rank = next((i+1 for i, (n, p) in enumerate(top_drivers) if n == player_name), None)
+                    if player_rank == 1:
+                        rumours.append(f"📰 {team_name} at the top! Everyone's chasing {player_name}.")
+                    elif player_rank and player_rank <= 3:
+                        rumours.append(f"📰 {player_name} in the title hunt — {team_name} proving they belong.")
+    
+    # =========================================================================
+    # DRIVER PERFORMANCE / STAT CHANGE RUMORS
+    # =========================================================================
+    # Find drivers on hot streaks (multiple recent wins/podiums)
+    if state.race_history and len(state.race_history) >= 2:
+        recent_races = state.race_history[-3:]  # Last 3 races
+        
+        win_counts = {}
+        podium_counts = {}
+        dnf_counts = {}
+        
+        for race in recent_races:
+            if race.get("finishers"):
+                winner = race["finishers"][0]
+                win_counts[winner["name"]] = win_counts.get(winner["name"], 0) + 1
+                
+                for pos, finisher in enumerate(race["finishers"][:3]):
+                    podium_counts[finisher["name"]] = podium_counts.get(finisher["name"], 0) + 1
+            
+            for dnf in race.get("dnfs", []):
+                dnf_counts[dnf["name"]] = dnf_counts.get(dnf["name"], 0) + 1
+        
+        # Hot streak drivers
+        for driver_name, wins in win_counts.items():
+            if wins >= 2:
+                rumours.append(f"📰 {driver_name} is ON FIRE! {wins} wins from the last 3 races.")
+                rumours.append(f"📰 Who can stop {driver_name}? The paddock is buzzing about their dominant form.")
+        
+        # Consistent podium finishers
+        for driver_name, podiums in podium_counts.items():
+            if podiums >= 3 and driver_name not in win_counts:
+                rumours.append(f"📰 {driver_name} quietly delivering — 3 consecutive podiums. A title dark horse?")
+        
+        # Reliability concerns
+        for driver_name, dnfs in dnf_counts.items():
+            if dnfs >= 2:
+                rumours.append(f"📰 {driver_name} plagued by reliability issues — {dnfs} retirements in recent races.")
+    
+    # Look for drivers with recent XP gains (stat improvements)
+    high_xp_drivers = []
+    declining_drivers = []
+    for d in drivers:
+        xp = d.get("xp", 0)
+        age = d.get("age", 25)
+        peak_age = d.get("peak_age", 28)
+        decline_age = d.get("decline_age", 34)
+        
+        # Rising stars with banked XP
+        if xp >= 4.0 and age < peak_age:
+            high_xp_drivers.append(d)
+        
+        # Veterans past decline
+        if age > decline_age + 3:
+            declining_drivers.append(d)
+    
+    if high_xp_drivers:
+        driver = random.choice(high_xp_drivers)
+        rumours.append(f"📰 {driver['name']} showing rapid improvement — scouts say they're close to a breakthrough.")
+        rumours.append(f"📰 Insiders tip {driver['name']} for great things. Experience is paying off.")
+    
+    if declining_drivers:
+        driver = random.choice(declining_drivers)
+        rumours.append(f"📰 Is {driver['name']} past their prime? Some say the veteran should consider retirement.")
+    
+    # =========================================================================
+    # PLAYER-SPECIFIC RUMORS
+    # =========================================================================
+    if state.player_driver:
+        player = state.player_driver
+        player_name = player.get("name")
+        
+        # Contract status
+        if state.driver_contract_races <= 2 and state.driver_contract_races > 0:
+            rumours.append(f"📰 Contract watch: {player_name}'s deal with {team_name} expires soon. Will they re-sign?")
+        
+        # Recent form
+        if state.race_history:
+            last_race = state.race_history[-1]
+            player_finish = next((f["pos"] for f in last_race.get("finishers", []) if f["name"] == player_name), None)
+            
+            if player_finish == 1:
+                rumours.append(f"📰 {team_name} riding high after victory! {player_name} is the talk of the paddock.")
+            elif player_finish and player_finish <= 3:
+                rumours.append(f"📰 {player_name} keeping {team_name} in the headlines with another podium.")
+            elif player_finish and player_finish > 15:
+                rumours.append(f"📰 Questions being asked at {team_name} after disappointing result.")
+        
+        # Fame/reputation
+        fame = player.get("fame", 0)
+        if fame >= 7:
+            rumours.append(f"📰 {player_name} is a household name now. Autograph hunters mob the paddock.")
+        elif fame >= 4:
+            rumours.append(f"📰 {player_name} building a solid reputation. Respected in the paddock.")
+        elif fame <= 1:
+            rumours.append(f"📰 {player_name}? Who? The press still don't know {team_name}'s driver.")
+    
+    # =========================================================================
+    # FINANCIAL / SPONSOR RUMORS  
+    # =========================================================================
+    if state.money < 300:
+        rumours.append(f"📰 Creditors circling {team_name}? Rumours of unpaid bills and worried suppliers.")
+    elif state.money < 800:
+        rumours.append(f"📰 {team_name} tightening belts — catering downgraded to sandwiches and cold tea.")
+    elif state.money > 8000:
+        rumours.append(f"📰 {team_name} flush with cash! Rivals envious of the team's healthy budget.")
+    
     if state.sponsor_active:
-        sponsor_name = state.sponsor_name
-        if state.sponsor_podiums > 0:
-            rumours.append(
-                f"{sponsor_name} executives are reportedly delighted with how often their logo appears on the podium."
-            )
-            rumours.append(f"SPONSOR SUCCESS: {sponsor_name} celebrates {team_name}'s podium achievements.")
-        else:
-            rumours.append(
-                f"Some in the paddock say {sponsor_name} expected more results for their money."
-            )
-            rumours.append(f"SPONSOR PRESSURE: Journalists question {sponsor_name}'s investment in {team_name}.")
-
-    # Prestige-related with media angle
-    if state.prestige >= 6.0:
-        rumours.append(
-            f"Word is that a few talented drivers have quietly asked about a seat with {team_name}."
-        )
-        rumours.append(f"RISING STARS: Media attention grows around {team_name}'s success.")
-    elif state.prestige <= 1.0:
-        rumours.append(
-            f"Most teams still treat {team_name} as just another backmarker shed outfit."
-        )
-        rumours.append(f"STRUGGLE STORIES: Journalists document {team_name}'s challenging season.")
-
-    # Random driver/team news with media flavor
-    driver_names = ["Marco Valtieri", "Luca Rossi", "Henri Dubois", "Karl Schmidt", "James Harrington"]
-    if state.player_driver and state.player_driver["name"] in driver_names:
-        rumours.append(f"Scouts from other teams are watching {state.player_driver['name']} closely after recent performances.")
-        rumours.append(f"DRIVER SPOTLIGHT: Media focuses on {state.player_driver['name']}'s impressive form.")
-
-    # Team rivalries with media context
-    if state.prestige > 5.0:
-        rumours.append("Rival teams are said to be envious of the resources flowing into the paddock's newest success story.")
-        rumours.append("RIVALRY COVERAGE: Journalists fuel speculation about team tensions in the paddock.")
-
-    # Enhanced random events with media and atmospheric elements
-    random_events = [
-        "A mysterious benefactor is said to be funding a new team from the shadows.",
-        "Whispers of a new engine formula that could change everything next season.",
-        "Old racing circuits are being modernized; the future of the sport is evolving.",
-        "Driver safety is becoming a hot topic after a recent incident at practice.",
-        "TECHNICAL BREAKTHROUGHS: Rumors swirl about revolutionary chassis designs.",
-        "CIRCUIT MODERNIZATION: Historic tracks undergo safety and facility upgrades.",
-        "SAFETY DEBATES: Recent incidents spark discussions about driver protection.",
-        "ENGINE REVOLUTIONS: Whispers of turbocharged or alternative fuel technologies.",
-        "TEAM EXPANSIONS: New constructors prepare to enter the championship.",
-        "REGULATORY CHANGES: Sporting authorities consider rule modifications.",
-        "FAN ENGAGEMENT: Spectator facilities improve as interest in racing grows.",
-        "TECHNOLOGY TRANSFER: Aviation and military tech finds its way into racing.",
-    ]
-    rumours.extend(random_events)
-
-    if not rumours:
-        return
-
-    state.news.append("Paddock rumour: " + random.choice(rumours))
+        if state.sponsor_podiums >= 3:
+            rumours.append(f"📰 {state.sponsor_name} executives thrilled — their investment is paying dividends.")
+        elif state.sponsor_races_started > 5 and state.sponsor_podiums == 0:
+            rumours.append(f"📰 Whispers that {state.sponsor_name} are disappointed with {team_name}'s results.")
+    else:
+        if state.prestige >= 5:
+            rumours.append(f"📰 Several sponsors reportedly interested in {team_name}. Expect announcements soon.")
+    
+    # Tyre sponsor
+    if getattr(state, 'tyre_sponsor_active', False):
+        tyre_sponsor = getattr(state, 'tyre_sponsor_name', 'Unknown')
+        rumours.append(f"📰 {tyre_sponsor} truck spotted at {team_name}'s garage — the tyre deal is working well.")
+    
+    # =========================================================================
+    # PRESTIGE / REPUTATION RUMORS
+    # =========================================================================
+    if state.prestige >= 20:
+        rumours.append(f"📰 {team_name} has established themselves as a serious outfit. Works teams taking notice.")
+    elif state.prestige >= 10:
+        rumours.append(f"📰 {team_name} earning respect in the paddock. No longer dismissed as backmarkers.")
+    elif state.prestige <= 2:
+        rumours.append(f"📰 {team_name} still considered rank outsiders. The big teams barely acknowledge them.")
+    
+    # =========================================================================
+    # WORKS TEAM RUMORS
+    # =========================================================================
+    if getattr(state, 'valdieri_active', False):
+        rumours.append("📰 Scuderia Valdieri mechanics working late into the night. A new development coming?")
+    
+    rumours.append("📰 Enzoni testing revolutionary suspension geometry at their private test track.")
+    
+    # =========================================================================
+    # ERA-SPECIFIC / SEASONAL RUMORS
+    # =========================================================================
+    from gmr.constants import get_era_name
+    era = get_era_name(time.year)
+    
+    if time.year < 1950:
+        rumours.append("📰 Talk of formalizing a proper world championship — the FIA is deliberating.")
+        rumours.append("📰 Pre-war drivers returning to the circuits. The old guard still has pace.")
+    elif time.year < 1960:
+        rumours.append("📰 Rear-engine experiments causing controversy. Purists call it 'ungentlemanly'.")
+        rumours.append("📰 Commercial sponsorship creeping in. Some say it cheapens the sport.")
+    elif time.year < 1970:
+        rumours.append("📰 Aerodynamics becoming crucial. Wind tunnel time is the new arms race.")
+    elif time.year < 1980:
+        rumours.append("📰 Ground effect technology is reshaping car design. Dangerous speeds worry officials.")
+    elif time.year < 1990:
+        rumours.append("📰 Turbo engines delivering insane power. Reliability is the only question.")
+    elif time.year < 2000:
+        rumours.append("📰 Electronics revolution changing racing. Some call it the 'gadget era'.")
+    elif time.year < 2010:
+        rumours.append("📰 Aerodynamic downforce at record levels. Overtaking becoming nearly impossible.")
+    elif time.year < 2020:
+        rumours.append("📰 Hybrid power units bringing new complexity. Manufacturers love the tech showcase.")
+    else:
+        rumours.append("📰 Sustainable fuels and electric hybrids — racing adapts to a changing world.")
+        rumours.append("📰 Autonomous assistance systems being tested. The future is here.")
+    
+    # End of season rumors
+    if season_week >= 40:
+        rumours.append("📰 Silly season heating up! Driver moves and team changes expected over winter.")
+        rumours.append("📰 Contract negotiations intensifying as the season draws to a close.")
+    
+    # Start of season
+    if season_week <= 4:
+        rumours.append("📰 Fresh season, fresh hopes! Teams optimistic after winter preparation.")
+        rumours.append("📰 Pre-season testing gave little away — the real pecking order remains unclear.")
+    
+    # =========================================================================
+    # OUTPUT A RANDOM RUMOR
+    # =========================================================================
+    if rumours:
+        state.news.append("PADDOCK TALK: " + random.choice(rumours).replace("📰 ", ""))
 
 def apply_ai_works_chassis_development(state, time):
     """

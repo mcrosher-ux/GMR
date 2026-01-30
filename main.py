@@ -44,6 +44,7 @@ from gmr.story import inject_demo_prologue, handle_bankruptcy_rescue
 from gmr.ui_business import show_business
 from gmr.ui_business import can_do_pr_trip
 from gmr.ui_world import show_world_economy
+from gmr.ui_career import show_career_menu, show_player_status_brief
 from gmr.calendar import generate_calendar_for_year
 from gmr.core_state import ensure_state_fields
 
@@ -116,19 +117,65 @@ def normalise_country_name(raw: str) -> str:
     return raw.strip().title()
 
 
-def setup_player(state):
-    print("\nYour father passed away, leaving you his old racing chassis and a worn Level 1 engine.")
-    print("You inherit a small shed for a garage and a single mechanic.")
-    print("This is the start of your racing adventure.\n")
-
-    state.player_constructor = input("Enter the name of your racing company: ")
+def setup_player(state, time):
+    """Set up the player character and their initial company."""
+    
+    print("\n" + "="*60)
+    print("  THE YEAR IS 1947")
+    print("="*60)
+    print("\nThe war is over. Europe is rebuilding.")
+    print("Men with petrol in their veins are returning to the circuits.")
+    print("\nYour father passed away, leaving you his old racing chassis")
+    print("and a worn Level 1 engine. You inherit a small shed for a")
+    print("garage and a single mechanic.")
+    print("\nThis is the start of your racing adventure.\n")
+    
+    # Player character setup
+    print("-" * 40)
+    print("  WHO ARE YOU?")
+    print("-" * 40)
+    
+    player_name = input("\nEnter your name: ").strip()
+    if not player_name:
+        player_name = "John Harper"
+    state.player_character.name = player_name
+    
+    # Birth year determines starting age
+    print(f"\nYou were born in 1930. You are {time.year - 1930} years old.")
+    state.player_character.birth_year = 1930
+    
     while True:
-        country = input("What country is your team based in? ").strip()
+        country = input("What country are you from? ").strip()
         if country:
-            state.country = normalise_country_name(country)
+            state.player_character.home_country = normalise_country_name(country)
             break
         print("Please enter a country name.")
-
+    
+    # Company setup
+    print("\n" + "-" * 40)
+    print("  YOUR RACING COMPANY")
+    print("-" * 40)
+    
+    company_name = input("\nEnter the name of your racing company: ").strip()
+    if not company_name:
+        company_name = f"{player_name.split()[0]} Racing" if " " in player_name else f"{player_name} Racing"
+    
+    state.player_constructor = company_name
+    state.company_founder = player_name
+    state.company_founded_year = time.year
+    state.is_player_owned = True
+    state.player_character.companies_founded.append(company_name)
+    state.player_character.companies_managed.append(company_name)
+    
+    while True:
+        team_country = input("What country is your team based in? ").strip()
+        if team_country:
+            state.country = normalise_country_name(team_country)
+            break
+        print("Please enter a country name.")
+    
+    print(f"\n{player_name}, age {time.year - 1930}, founds {company_name}.")
+    print(f"Based in {state.country}. Let the adventure begin!\n")
 
     state.garage.level = 0
     state.garage.base_cost = 25
@@ -142,7 +189,7 @@ def run_game():
     init_driver_careers()
     time = GameTime()
     state = GameState()
-    setup_player(state)
+    setup_player(state, time)
 
     # Initialise driver career fields (age, peak, decline, XP, etc.)
     init_driver_careers()
@@ -169,6 +216,58 @@ def run_game():
 
         # If we've moved into a new year, clear last season's data
         if state.podiums_year < time.year:
+            # =========================================================
+            # PLAYER AGE CHECK - Death at 100 or health issues after 80
+            # =========================================================
+            if state.player_character.check_death(time.year):
+                player_age = state.player_character.get_age(time.year)
+                player_name = state.player_character.name
+                
+                print("\n" + "="*60)
+                if state.player_character.death_reason == "old_age":
+                    print(f"  {player_name} passes away at the age of {player_age}.")
+                    print("  A full life lived in pursuit of racing glory.")
+                else:
+                    print(f"  {player_name} passes away at the age of {player_age}.")
+                    print("  The rigors of the racing world have taken their toll.")
+                print("="*60)
+                
+                # Show career summary
+                print(f"\n  CAREER SUMMARY: {player_name}")
+                print(f"  Years in racing: {time.year - 1947}")
+                print(f"  Companies founded: {len(state.player_character.companies_founded)}")
+                print(f"  Total races managed: {state.player_character.career_races}")
+                print(f"  Total wins: {state.player_character.career_wins}")
+                print(f"  Total podiums: {state.player_character.career_podiums}")
+                
+                if time.year >= 2030:
+                    print("\n  🏆 CONGRATULATIONS! You lived to see the future of racing!")
+                    print("  The sport you helped build now races on circuits around the world.")
+                
+                print("\n  GAME OVER - Thank you for playing!")
+                print("="*60)
+                input("\nPress Enter to exit...")
+                return  # End the game
+            
+            # Show birthday message at start of new year
+            player_age = state.player_character.get_age(time.year)
+            player_name = state.player_character.name
+            if player_age in [30, 40, 50, 60, 70, 80, 90, 100]:
+                state.news.append(f"🎂 Happy {player_age}th birthday, {player_name}!")
+                if player_age == 80:
+                    state.news.append("   The years are catching up... take care of yourself.")
+                elif player_age == 90:
+                    state.news.append("   A legend of the sport. Few have seen so much.")
+            
+            # Check for new era
+            from gmr.constants import get_era_name, get_era_description
+            prev_era = get_era_name(time.year - 1)
+            curr_era = get_era_name(time.year)
+            if prev_era != curr_era:
+                state.news.append("")
+                state.news.append(f"🏁 A NEW ERA BEGINS: {curr_era}")
+                state.news.append(f"   {get_era_description(time.year)}")
+            
             apply_offseason_ageing_and_retirement(state, time)
             offseason_fame_decay(time)
 
@@ -234,8 +333,14 @@ def run_game():
         # -------- MAIN MENU --------
         season_week = get_season_week(time)
 
+        # Player status header
+        player_status = show_player_status_brief(state, time)
+        print(f"\n{'='*60}")
+        print(f"  {player_status}")
+        print(f"{'='*60}")
+
         print(f"\n--- Week {time.week}, {MONTHS[time.month]} {time.year} ---")
-        print(f"Money: £{state.money}")
+        print(f"Company Funds: £{state.money}  |  Personal Savings: £{state.player_character.personal_savings}")
 
         # Driver status
         if state.player_driver:
@@ -266,25 +371,26 @@ def run_game():
             print("  Note: Test day available – Garage (4) → Book Test Day (5).")
 
         if can_do_pr_trip(state, time):
-            print("  Note: Sponsor PR trip available – Business (6) → PR/networking trip.")
+            print("  Note: Sponsor PR trip available – Business (7) → PR/networking trip.")
 
         print("\n1. Calendar")
         print("2. Season Results")
         print("3. Finances")
         print("4. Garage")
         print("5. Driver Market")
-        print("6. Business & Contracts")
-        print("7. World News & Economy")
-        print("8. Settings")
+        print("6. Career & Personal")
+        print("7. Business & Contracts")
+        print("8. World News & Economy")
+        print("9. Settings")
 
 
         if state.pending_race_week is None:
             # Normal case: no race locked in yet, you can advance time
-            print("9. Advance Week")
+            print("0. Advance Week")
         else:
             # Race is waiting this week; you *must* run the weekend before time can move on
             race_name = race_calendar[state.pending_race_week]
-            print(f"9. Enter race weekend ({race_name})")
+            print(f"0. Enter race weekend ({race_name})")
 
         choice = input("> ").strip()
 
@@ -377,14 +483,18 @@ def run_game():
             show_driver_market(state)
 
         elif choice == "6":
-            # NEW: Business & Contracts screen
-            show_business(state, time)
+            # Career & Personal menu
+            show_career_menu(state, time)
 
         elif choice == "7":
+            # Business & Contracts screen
+            show_business(state, time)
+
+        elif choice == "8":
             # World News & Economy
             show_world_economy(state, time)
 
-        elif choice == "8":
+        elif choice == "9":
             # Settings submenu
             while True:
                 print("\n=== Settings ===")
@@ -417,7 +527,7 @@ def run_game():
                 else:
                     print("Invalid choice.")
 
-        elif choice == "9":
+        elif choice == "0":
             # Advance time OR, if we're already locked into a race weekend, run the race
             # Advance time OR, if we're already locked into a race weekend, run the race
             if state.pending_race_week is None:

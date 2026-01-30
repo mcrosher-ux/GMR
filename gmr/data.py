@@ -246,6 +246,20 @@ drivers = [
         "fame": 0,
         "age": 32,
     },
+
+    # === Gentleman Drivers / Privateers ===
+    # These wealthy amateurs appear at select races with their own privately-entered cars
+    {
+        "name": "Prince Sagat", "constructor": "Privateer Valdieri",
+        "pace": 4, "consistency": 5,  # meh pace, reasonable consistency
+        "aggression": 3, "mechanical_sympathy": 8, "wet_skill": 6,  # great with machinery, ok in wet, cautious
+        "fame": 2,  # royal fame
+        "age": 26,  # young prince in 1949
+        "country": "Thailand",
+        "gentleman_driver": True,
+        "appears_from_year": 1949,
+        "selective_entries": True,  # only big races + random medium ones
+    },
 ]
 
 
@@ -266,6 +280,15 @@ constructors = {
         "chassis_id": "valdieri_works_spaceframe",
         "dev_bonus": 0.20,
         "dev_attempt_chance": 0.80,
+    },
+    # Privateer Valdieri: Prince Sagat's private entry using customer Valdieri equipment
+    "Privateer Valdieri": {
+        "country": "Thailand",
+        "engine_id": "valdieri_works_v12",  # bought a Valdieri engine
+        "chassis_id": "valdieri_works_spaceframe",  # bought a Valdieri chassis
+        "dev_bonus": 0.0,  # no factory development
+        "dev_attempt_chance": 0.0,  # privateers don't develop
+        "is_privateer": True,
     },
     "Independent": {"speed": 5, "reliability": 4},
     "Test": {"speed": 5, "reliability": 4},
