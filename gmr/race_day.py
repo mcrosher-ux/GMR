@@ -77,8 +77,9 @@ def calc_travel_cost(home_country: str, event_country: str, year: int) -> int:
     if home == dest:
         return int(DOMESTIC * era_mult)
 
-    # USA trip is expensive for non-USA teams and vice versa
-    if home == "USA" or dest == "USA":
+    # USA, Brazil, Argentina trips are expensive (transatlantic) for non-American teams
+    americas = {"USA", "Brazil", "Argentina"}
+    if home in americas or dest in americas:
         return int(TRANSATLANTIC * era_mult)
 
     # --- Europe split ---
