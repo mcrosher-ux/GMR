@@ -79,6 +79,11 @@ def show_business(state, time):
                     print("  You have no sponsors yet.")
                     print("  Perform well and keep an eye out for offers after major events.")
 
+            # --- Tyre Sponsorship ---
+            from gmr.sponsorship import show_tyre_sponsor_status
+            print("\nTyre Sponsorship:")
+            show_tyre_sponsor_status(state)
+
             # --- Driver contract ---
             print("\nDriver Contract:")
             if state.player_driver:

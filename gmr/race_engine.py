@@ -282,21 +282,35 @@ class RaceSimulator:
                 self.retire_reasons[player_name] = player_incident
                 self.active_drivers.discard(player_name)
                 
+                # Apply immediate damage to the car
                 if player_incident == "engine":
+                    # Engine failure causes major engine damage
+                    engine_damage = random.uniform(15, 30)
+                    self.game_state.engine_wear = max(0.0, self.game_state.engine_wear - engine_damage)
+                    self.game_state.engine_health = max(0.0, self.game_state.engine_health - engine_damage * 0.5)
                     flavors = [
                         f"💥 {player_name}'s engine lets go in a spectacular cloud of smoke!",
                         f"💥 Terminal mechanical failure! {player_name} coasts to a stop.",
                         f"💥 The engine gives up! {player_name}'s race is over.",
                         f"💥 Oil smoke billows from {player_name}'s car — engine failure!",
                     ]
+                    stage_result["incidents"].append(random.choice(flavors))
+                    stage_result["incidents"].append(f"⚠️ Engine damage: -{engine_damage:.0f}% condition")
                 else:
+                    # Crash causes major chassis damage and some engine damage
+                    chassis_damage = random.uniform(20, 40)
+                    engine_damage = random.uniform(5, 15)
+                    self.game_state.chassis_wear = max(0.0, self.game_state.chassis_wear - chassis_damage)
+                    self.game_state.chassis_health = max(0.0, self.game_state.chassis_health - chassis_damage * 0.5)
+                    self.game_state.engine_wear = max(0.0, self.game_state.engine_wear - engine_damage)
                     flavors = [
                         f"💥 {player_name} loses control and slides into the barriers!",
                         f"💥 A mistake from {player_name}! The car spins off into the gravel!",
                         f"💥 {player_name} crashes out of the race!",
                         f"💥 Disaster! {player_name} hits the wall and is out!",
                     ]
-                stage_result["incidents"].append(random.choice(flavors))
+                    stage_result["incidents"].append(random.choice(flavors))
+                    stage_result["incidents"].append(f"⚠️ Chassis damage: -{chassis_damage:.0f}% | Engine damage: -{engine_damage:.0f}%")
                 stage_result["player_dnf"] = player_incident
         
         # Calculate new performance for each remaining driver
@@ -373,7 +387,7 @@ class RaceSimulator:
         stage_performances.sort(key=lambda x: x[1], reverse=True)
         self.current_positions = [d for d, _ in stage_performances]
         
-        # Detect overtakes
+        # Detect overtakes - track each pass with the correct position gained
         new_order = [d.get("name") for d in self.current_positions]
         
         for new_pos_idx, driver_name in enumerate(new_order):
@@ -383,17 +397,19 @@ class RaceSimulator:
             
             # If driver moved up (lower index = higher position)
             if new_pos_idx < old_pos_idx:
-                positions_gained = old_pos_idx - new_pos_idx
-                # Record overtakes on drivers they passed
-                for i in range(new_pos_idx, old_pos_idx):
-                    if i < len(old_order):
-                        overtaken_name = old_order[i]
+                # Record each individual overtake with the correct position
+                # Driver passes each person one at a time, gaining positions sequentially
+                # old_pos_idx=5 (P6), new_pos_idx=2 (P3) means they passed people at P5, P4, P3
+                for pass_idx in range(old_pos_idx - 1, new_pos_idx - 1, -1):
+                    if pass_idx >= 0 and pass_idx < len(old_order):
+                        overtaken_name = old_order[pass_idx]
                         if overtaken_name != driver_name:
-                            new_pos = new_pos_idx + 1  # 1-indexed
+                            # The position they're taking from this person
+                            position_for_this_pass = pass_idx + 1  # 1-indexed
                             stage_result["overtakes"].append({
                                 "overtaker": driver_name,
                                 "overtaken": overtaken_name,
-                                "new_position": new_pos,
+                                "new_position": position_for_this_pass,
                             })
         
         # Record position changes
@@ -1946,6 +1962,24 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
         state.driver_career[name] = c
 
     state.race_history.append(entry)
+    
+    # Update tyre sponsor progress if player finished
+    if state.player_driver:
+        player_name = state.player_driver.get("name")
+        player_finish_pos = None
+        is_podium = False
+        is_win = False
+        
+        for pos, (d, _) in enumerate(finishers, start=1):
+            if d.get("name") == player_name:
+                player_finish_pos = pos
+                is_podium = pos <= 3
+                is_win = pos == 1
+                break
+        
+        if player_finish_pos is not None:
+            from gmr.sponsorship import update_tyre_sponsor_progress
+            update_tyre_sponsor_progress(state, player_finish_pos, is_podium, is_win)
 
 
 def add_engine_failure_explanation(
@@ -3135,15 +3169,13 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         engine_wear = engine_base_wear * avg_stage_wear
         chassis_wear = chassis_base_wear * avg_stage_wear
 
-        # Extra punishment if you actually finished the full distance
+        # Extra wear if you finished the full distance
         player_finished = any(d == state.player_driver for d, _ in finishers)
         if player_finished:
             engine_wear *= 1.2
             chassis_wear *= 1.2
-        else:
-            # If you retired early, you spared some miles
-            engine_wear *= 0.8
-            chassis_wear *= 0.8
+        # Note: If player retired (crash/engine failure), damage was already applied during the race
+        # No additional reduction here - the incident damage is the penalty
 
         # Apply wear and clamp
         state.engine_health = max(0.0, state.engine_health - engine_wear)

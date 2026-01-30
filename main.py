@@ -191,6 +191,10 @@ def run_game():
             # New calendar for the new year
             race_calendar = generate_calendar_for_year(time.year)
 
+            # Check tyre sponsor goals at season end
+            from gmr.sponsorship import check_tyre_sponsor_goals
+            check_tyre_sponsor_goals(state, time)
+
             # Check for sponsor contract renewal
             from gmr.sponsorship import maybe_offer_sponsor_renewal
             maybe_offer_sponsor_renewal(state, time)

@@ -550,8 +550,9 @@ def handle_race_week(state, time):
 
         state.completed_races.add(season_week)  # Mark as done to prevent loop
 
-        from gmr.sponsorship import maybe_offer_sponsor
+        from gmr.sponsorship import maybe_offer_sponsor, maybe_offer_tyre_sponsorship
         maybe_offer_sponsor(state, time)
+        maybe_offer_tyre_sponsorship(state, time)
 
         return
 
@@ -588,12 +589,6 @@ def handle_race_week(state, time):
                     skipped_track = tracks.get(skipped_race, {})
                     run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
                 state.completed_races.add(season_week)  # Mark as done to prevent loop
-                return
-
-            if getattr(state, "tyre_sets", 0) <= 0:
-                print("\nYou have no tyre sets available and cannot start the race.")
-                input("\nPress Enter to continue...")
-                run_ai_only_race(state, race_name, time, season_week, track_profile)
                 return
             
             # ✅ ONLY charge travel if you actually enter the event
@@ -695,6 +690,10 @@ def handle_race_week(state, time):
     # From here on: full race weekend
     # ------------------------------
 
+    # Deliver tyre sponsor tyres before the race
+    from gmr.sponsorship import deliver_tyre_sponsor_tyres
+    deliver_tyre_sponsor_tyres(state, time, race_name)
+
     # Decide race-day weather up front
     is_wet, is_hot = roll_race_weather(track_profile)
 
@@ -763,13 +762,11 @@ def handle_race_week(state, time):
                     print("-----------------------------------")
                     state.news.clear()
 
-            return  # ✅ leave race week after the race runs (prevents infinite loop)
-  
-            from gmr.sponsorship import maybe_offer_sponsor
+            from gmr.sponsorship import maybe_offer_sponsor, maybe_offer_tyre_sponsorship
             maybe_offer_sponsor(state, time)
-            return
+            maybe_offer_tyre_sponsorship(state, time)
+            
+            return  # ✅ leave race week after the race runs (prevents infinite loop)
           
-
-           
         else:
             print("Invalid choice. Please select 1 or 2.")
