@@ -439,6 +439,292 @@ def maybe_weather_preparation(state, time):
     print(f"\nPreparation complete. {benefit_desc}.")
 
 
+# =============================================================================
+# TYRE SPONSORSHIP SYSTEM
+# =============================================================================
+
+TYRE_SPONSORS = {
+    "Roadmaster Rubber Co.": {
+        "flavor": "A budget rubber manufacturer looking to break into motorsport",
+        "personality": "methodical_german",
+        "min_prestige": 1.0,
+        "tyres_per_race": 2,
+        "goals": {
+            "races_to_complete": 5,
+            "min_finish_position": 10,  # Must finish in top 10 at least once
+        },
+    },
+    "Veloce Gomme": {
+        "flavor": "The Italian tyre company wants to prove their rubber on the track",
+        "personality": "passionate_italian",
+        "min_prestige": 3.0,
+        "tyres_per_race": 3,
+        "goals": {
+            "races_to_complete": 4,
+            "min_finish_position": 6,  # Must finish in top 6
+            "podiums_required": 1,
+        },
+    },
+    "Eagle Tyre Company": {
+        "flavor": "The American tyre company expanding from domestic racing to Europe",
+        "personality": "ambitious_american",
+        "min_prestige": 5.0,
+        "tyres_per_race": 4,
+        "goals": {
+            "races_to_complete": 6,
+            "min_finish_position": 5,
+            "podiums_required": 2,
+        },
+    },
+    "Blackwall Racing": {
+        "flavor": "The prestigious British tyre brand seeking championship contenders",
+        "personality": "traditional_british",
+        "min_prestige": 8.0,
+        "tyres_per_race": 5,
+        "goals": {
+            "races_to_complete": 8,
+            "wins_required": 1,
+            "podiums_required": 3,
+        },
+    },
+}
+
+
+def maybe_offer_tyre_sponsorship(state, time):
+    """
+    Offer a tyre sponsorship deal to teams that don't have one.
+    Triggered after races, similar to regular sponsors.
+    """
+    # Already have tyre sponsorship
+    if getattr(state, 'tyre_sponsor_active', False):
+        return
+    
+    # Already seen an offer this season
+    if getattr(state, 'tyre_sponsor_offer_seen_year', 0) == time.year:
+        return
+    
+    # Need at least one race completed
+    races_completed = getattr(state, 'season_races_completed', 0)
+    if races_completed < 1:
+        return
+    
+    # Random chance (30% per race after first)
+    if random.random() > 0.30:
+        return
+    
+    # Find eligible sponsors based on prestige
+    available = []
+    for name, info in TYRE_SPONSORS.items():
+        if state.prestige >= info["min_prestige"]:
+            available.append((name, info))
+    
+    if not available:
+        return
+    
+    # Pick one randomly (weighted toward lower prestige ones for early game)
+    sponsor_name, sponsor_info = random.choice(available)
+    
+    state.tyre_sponsor_offer_seen_year = time.year
+    
+    print(f"\n{'='*60}")
+    print(f"  🛞 TYRE SPONSORSHIP OFFER")
+    print(f"{'='*60}")
+    print(f"\nA representative from {sponsor_name} approaches your team.")
+    print(f'"{sponsor_info["flavor"]}."')
+    print(f"\nThey offer a tyre supply deal for the {time.year} season:")
+    print(f"  • {sponsor_info['tyres_per_race']} FREE tyre sets delivered before each race")
+    print(f"\nIn exchange, you must complete these goals by season end:")
+    
+    goals = sponsor_info["goals"]
+    print(f"  • Complete at least {goals['races_to_complete']} races")
+    if "min_finish_position" in goals:
+        print(f"  • Finish in the top {goals['min_finish_position']} at least once")
+    if "podiums_required" in goals:
+        print(f"  • Achieve {goals['podiums_required']} podium finish{'es' if goals['podiums_required'] > 1 else ''}")
+    if "wins_required" in goals:
+        print(f"  • Win {goals['wins_required']} race{'s' if goals['wins_required'] > 1 else ''}")
+    
+    print(f"\n⚠️  WARNING: Failing to meet goals will damage your reputation!")
+    
+    choice = input("\nAccept the tyre sponsorship? (y/n): ").strip().lower()
+    
+    if choice == "y":
+        state.tyre_sponsor_active = True
+        state.tyre_sponsor_name = sponsor_name
+        state.tyre_sponsor_year = time.year
+        state.tyre_sponsor_tyres_per_race = sponsor_info["tyres_per_race"]
+        state.tyre_sponsor_goals = dict(goals)
+        
+        # Track progress
+        state.tyre_sponsor_races_completed = 0
+        state.tyre_sponsor_best_finish = 99
+        state.tyre_sponsor_podiums = 0
+        state.tyre_sponsor_wins = 0
+        
+        # Give initial tyres
+        initial_tyres = sponsor_info["tyres_per_race"] * 2
+        state.tyre_sets = getattr(state, 'tyre_sets', 0) + initial_tyres
+        
+        print(f"\n✅ Deal signed with {sponsor_name}!")
+        print(f"   {initial_tyres} tyre sets delivered to your garage immediately.")
+        state.news.append(f"TYRE DEAL: {sponsor_name} signs tyre supply agreement with your team!")
+    else:
+        print(f"\nYou politely decline {sponsor_name}'s offer.")
+        state.news.append(f"Your team declines a tyre sponsorship offer from {sponsor_name}.")
+
+
+def deliver_tyre_sponsor_tyres(state, time, race_name):
+    """
+    Called before each race to deliver sponsor tyres.
+    """
+    if not getattr(state, 'tyre_sponsor_active', False):
+        return
+    
+    # Check if still in contract year
+    if time.year != getattr(state, 'tyre_sponsor_year', 0):
+        return
+    
+    sponsor_name = getattr(state, 'tyre_sponsor_name', 'Unknown')
+    tyres = getattr(state, 'tyre_sponsor_tyres_per_race', 0)
+    
+    if tyres > 0:
+        state.tyre_sets = getattr(state, 'tyre_sets', 0) + tyres
+        print(f"\n🛞 {sponsor_name} delivers {tyres} tyre sets for {race_name}.")
+        state.news.append(f"TYRES: {sponsor_name} delivers {tyres} sets for {race_name}.")
+
+
+def update_tyre_sponsor_progress(state, finish_position, is_podium, is_win):
+    """
+    Called after each race to update tyre sponsor goal progress.
+    """
+    if not getattr(state, 'tyre_sponsor_active', False):
+        return
+    
+    state.tyre_sponsor_races_completed = getattr(state, 'tyre_sponsor_races_completed', 0) + 1
+    
+    if finish_position < getattr(state, 'tyre_sponsor_best_finish', 99):
+        state.tyre_sponsor_best_finish = finish_position
+    
+    if is_podium:
+        state.tyre_sponsor_podiums = getattr(state, 'tyre_sponsor_podiums', 0) + 1
+    
+    if is_win:
+        state.tyre_sponsor_wins = getattr(state, 'tyre_sponsor_wins', 0) + 1
+
+
+def check_tyre_sponsor_goals(state, time):
+    """
+    Called at end of season to check if tyre sponsor goals were met.
+    """
+    if not getattr(state, 'tyre_sponsor_active', False):
+        return
+    
+    if time.year != getattr(state, 'tyre_sponsor_year', 0):
+        return
+    
+    sponsor_name = getattr(state, 'tyre_sponsor_name', 'Unknown')
+    goals = getattr(state, 'tyre_sponsor_goals', {})
+    
+    races_done = getattr(state, 'tyre_sponsor_races_completed', 0)
+    best_finish = getattr(state, 'tyre_sponsor_best_finish', 99)
+    podiums = getattr(state, 'tyre_sponsor_podiums', 0)
+    wins = getattr(state, 'tyre_sponsor_wins', 0)
+    
+    # Check each goal
+    goals_met = True
+    failed_goals = []
+    
+    if races_done < goals.get('races_to_complete', 0):
+        goals_met = False
+        failed_goals.append(f"Only completed {races_done}/{goals['races_to_complete']} races")
+    
+    if 'min_finish_position' in goals and best_finish > goals['min_finish_position']:
+        goals_met = False
+        failed_goals.append(f"Best finish was P{best_finish}, needed top {goals['min_finish_position']}")
+    
+    if 'podiums_required' in goals and podiums < goals['podiums_required']:
+        goals_met = False
+        failed_goals.append(f"Only {podiums}/{goals['podiums_required']} podiums")
+    
+    if 'wins_required' in goals and wins < goals['wins_required']:
+        goals_met = False
+        failed_goals.append(f"Only {wins}/{goals['wins_required']} wins")
+    
+    print(f"\n{'='*60}")
+    print(f"  🛞 TYRE SPONSORSHIP REVIEW — {sponsor_name}")
+    print(f"{'='*60}")
+    
+    if goals_met:
+        print(f"\n✅ GOALS MET! {sponsor_name} is pleased with your performance.")
+        print(f"   They may offer an improved deal next season.")
+        state.news.append(f"TYRE SPONSOR: {sponsor_name} satisfied — goals achieved!")
+        
+        # Small prestige boost
+        state.prestige = min(100.0, state.prestige + 1.0)
+        
+        # Mark for potential renewal
+        state.tyre_sponsor_goals_met = True
+    else:
+        print(f"\n❌ GOALS NOT MET! {sponsor_name} is disappointed.")
+        print(f"   Failed requirements:")
+        for fail in failed_goals:
+            print(f"     • {fail}")
+        
+        # Prestige penalty
+        penalty = 2.0
+        state.prestige = max(0.0, state.prestige - penalty)
+        print(f"\n   Your reputation suffers. (Prestige -{penalty:.1f})")
+        state.news.append(f"TYRE SPONSOR: {sponsor_name} disappointed — goals missed! Prestige -{penalty:.1f}")
+        state.tyre_sponsor_goals_met = False
+    
+    # Clear active status (contract ended)
+    state.tyre_sponsor_active = False
+
+
+def show_tyre_sponsor_status(state):
+    """
+    Display current tyre sponsor status and progress.
+    """
+    if not getattr(state, 'tyre_sponsor_active', False):
+        print("\n  No active tyre sponsorship.")
+        return
+    
+    sponsor_name = getattr(state, 'tyre_sponsor_name', 'Unknown')
+    goals = getattr(state, 'tyre_sponsor_goals', {})
+    
+    races_done = getattr(state, 'tyre_sponsor_races_completed', 0)
+    best_finish = getattr(state, 'tyre_sponsor_best_finish', 99)
+    podiums = getattr(state, 'tyre_sponsor_podiums', 0)
+    wins = getattr(state, 'tyre_sponsor_wins', 0)
+    
+    print(f"\n  🛞 Tyre Sponsor: {sponsor_name}")
+    print(f"     Tyres per race: {getattr(state, 'tyre_sponsor_tyres_per_race', 0)} sets")
+    print(f"\n     Goal Progress:")
+    
+    # Races completed
+    req_races = goals.get('races_to_complete', 0)
+    status = "✅" if races_done >= req_races else "❌"
+    print(f"       {status} Races: {races_done}/{req_races}")
+    
+    # Best finish
+    if 'min_finish_position' in goals:
+        req_pos = goals['min_finish_position']
+        status = "✅" if best_finish <= req_pos else "❌"
+        finish_str = f"P{best_finish}" if best_finish < 99 else "N/A"
+        print(f"       {status} Best finish: {finish_str} (need top {req_pos})")
+    
+    # Podiums
+    if 'podiums_required' in goals:
+        req_pods = goals['podiums_required']
+        status = "✅" if podiums >= req_pods else "❌"
+        print(f"       {status} Podiums: {podiums}/{req_pods}")
+    
+    # Wins
+    if 'wins_required' in goals:
+        req_wins = goals['wins_required']
+        status = "✅" if wins >= req_wins else "❌"
+        print(f"       {status} Wins: {wins}/{req_wins}")
+
 
 def maybe_offer_sponsor_renewal(state, time):
     """
