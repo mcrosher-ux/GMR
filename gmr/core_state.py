@@ -3,6 +3,90 @@
 from gmr.data import drivers
 from gmr.world_economy import WorldEconomy
 
+
+class PlayerCharacter:
+    """
+    The player as a PERSON - separate from any company they might own/run.
+    Born in 1930, dies at 100 (year 2030).
+    """
+    def __init__(self):
+        self.name = "Anonymous Owner"
+        self.birth_year = 1930
+        self.home_country = "UK"
+        
+        # Personal wealth (separate from company money)
+        self.personal_savings = 500  # Start with some personal savings
+        
+        # Personal stats (1-10 scale)
+        self.business_acumen = 5     # Affects sponsor negotiations, costs
+        self.technical_knowledge = 5  # Affects R&D efficiency, car insight
+        self.reputation = 5          # Personal fame in the paddock
+        self.health = 10             # Affects late-game survival
+        
+        # Career history
+        self.companies_founded = []   # List of company names founded
+        self.companies_managed = []   # List of company names worked at
+        self.career_wins = 0         # Total wins across all companies
+        self.career_podiums = 0      # Total podiums across all companies
+        self.career_races = 0        # Total races managed
+        
+        # Current employment status
+        self.current_role = "owner"  # "owner", "manager", "unemployed"
+        self.years_in_current_role = 0
+        
+        # Death flag
+        self.is_alive = True
+        self.death_year = None
+        self.death_reason = None
+    
+    def get_age(self, current_year):
+        """Calculate player's current age."""
+        return current_year - self.birth_year
+    
+    def check_death(self, current_year):
+        """Check if player should die this year. Returns True if newly dead."""
+        if not self.is_alive:
+            return False
+        
+        age = self.get_age(current_year)
+        
+        # Guaranteed death at 100
+        if age >= 100:
+            self.is_alive = False
+            self.death_year = current_year
+            self.death_reason = "old_age"
+            return True
+        
+        # Health-based chance of death after 80
+        if age >= 80:
+            import random
+            # Lower health = higher death chance
+            # At age 80 with health 10: ~5% chance
+            # At age 95 with health 1: ~50% chance
+            death_chance = ((age - 75) * 0.02) * (1.1 - self.health * 0.1)
+            if random.random() < death_chance:
+                self.is_alive = False
+                self.death_year = current_year
+                self.death_reason = "health"
+                return True
+        
+        return False
+    
+    def get_title(self, current_year):
+        """Get appropriate title based on age."""
+        age = self.get_age(current_year)
+        if age < 25:
+            return "Young"
+        elif age < 40:
+            return ""
+        elif age < 55:
+            return "Experienced"
+        elif age < 70:
+            return "Veteran"
+        else:
+            return "Legendary"
+
+
 class GarageState:
     def __init__(self):
         self.level = 0  # 0 = home shed, 1+ = upgraded facilities
@@ -57,11 +141,26 @@ class GarageState:
 
 class GameState:
     def __init__(self):
+        # =====================================================================
+        # PLAYER CHARACTER - The person playing the game
+        # =====================================================================
+        self.player_character = PlayerCharacter()
+        
+        # =====================================================================
+        # COMPANY/TEAM - The business entity (can change!)
+        # =====================================================================
         self.country = None
-        self.money = 5000
+        self.money = 5000  # Company money, not personal
         self.points = {}
-        self.player_constructor = None
-        self.player_driver = None
+        self.player_constructor = None  # Company name
+        self.player_driver = None       # Driver hired by the company
+        
+        # Company identity
+        self.company_founded_year = 1947  # When the company was founded
+        self.company_founder = None       # Who founded it (player or AI name)
+        self.is_player_owned = True       # Does the player own this company?
+        
+        # Company stats
         self.car_speed = 0
         self.car_reliability = 0
         self.constructor_earnings = 0
@@ -207,6 +306,22 @@ def ensure_state_fields(state) -> None:
     Defensive: ensure common per-week / per-race trackers exist.
     Safe to call at boot and at start of each week.
     """
+    # Player character system (for old saves)
+    if not hasattr(state, "player_character"):
+        state.player_character = PlayerCharacter()
+        # Try to migrate old data if available
+        if hasattr(state, "player_constructor") and state.player_constructor:
+            state.player_character.companies_founded.append(state.player_constructor)
+            state.player_character.companies_managed.append(state.player_constructor)
+    
+    # Company identity fields (for old saves)
+    if not hasattr(state, "company_founded_year"):
+        state.company_founded_year = 1947
+    if not hasattr(state, "company_founder"):
+        state.company_founder = state.player_character.name if hasattr(state, "player_character") else "Unknown"
+    if not hasattr(state, "is_player_owned"):
+        state.is_player_owned = True
+    
     if not hasattr(state, "valdieri_spawned"):
         state.valdieri_spawned = False
 
@@ -275,8 +390,11 @@ def ensure_state_fields(state) -> None:
     if not hasattr(state, "gallant_driver_promo_done"):
         state.gallant_driver_promo_done = False
 
-    # Chassis development project fields
-    if not hasattr(state, "chassis_project_stat_target"):
-        state.chassis_project_stat_target = None
-    if not hasattr(state, "chassis_project_dev_bonus"):
-        state.chassis_project_dev_bonus = 0.0
+    # Tyre sponsor fields
+    if not hasattr(state, "tyre_sponsor_active"):
+        state.tyre_sponsor_active = False
+    if not hasattr(state, "tyre_sponsor_name"):
+        state.tyre_sponsor_name = None
+    if not hasattr(state, "tyre_sponsor_offer_seen_year"):
+        state.tyre_sponsor_offer_seen_year = 0
+

@@ -1891,7 +1891,7 @@ def build_event_grid(state, time, race_name, track_profile):
     # Collect eligible drivers by "team"/pool
     by_team = {}
     for d in drivers:
-        if not driver_enters_event(d, race_name, track_profile, state):
+        if not driver_enters_event(d, race_name, track_profile, state, time):
             continue
 
         # Block Test drivers if debug toggle is off
@@ -1925,7 +1925,15 @@ def build_event_grid(state, time, race_name, track_profile):
     if state.player_constructor and state.player_constructor in by_team:
         final_grid.extend(by_team[state.player_constructor][:1])
 
-    # 2) Fill the rest of the grid with Independents (open pool)
+    # 2a) Add privateers / gentleman drivers (they bring their own cars, not part of works team)
+    # These are wealthy amateurs who enter with their own privately-entered machinery
+    for team_name, team_drivers in by_team.items():
+        ctor_data = constructors.get(team_name, {})
+        if ctor_data.get("is_privateer"):
+            # Privateers always get a spot (they paid for it!)
+            final_grid.extend(team_drivers)
+
+    # 2b) Fill the rest of the grid with Independents (open pool)
     independents = by_team.get("Independent", [])
 
     # IMPORTANT: don't always pick the same top guys
@@ -2974,14 +2982,20 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
 
         # They started the race, even if they DNF'd
         state.races_entered_with_team += 1
+        
+        # Track player character's career stats (across all companies)
+        state.player_character.career_races += 1
 
         if player_finish_pos is not None:
             # Wins / podiums
             if player_finish_pos == 0:
                 state.wins_with_team += 1
                 state.podiums_with_team += 1
+                state.player_character.career_wins += 1
+                state.player_character.career_podiums += 1
             elif player_finish_pos <= 2:
                 state.podiums_with_team += 1
+                state.player_character.career_podiums += 1
 
             # Championship points with your team
             if player_finish_pos < len(POINTS_TABLE):

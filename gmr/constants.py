@@ -63,11 +63,115 @@ def get_prize_for_race_and_pos(race_name: str, pos_index: int) -> int:
 
 
 def get_reliability_mult(time):
-    return ERA_RELIABILITY_MULTIPLIER
+    """
+    Reliability improves over the decades as engineering matures.
+    Lower = more reliable.
+    """
+    year = time.year
+    if year < 1955:
+        return 2.5  # Early era: very unreliable
+    elif year < 1965:
+        return 2.0  # 1950s-60s: improving
+    elif year < 1980:
+        return 1.5  # 1970s: better engineering
+    elif year < 2000:
+        return 1.2  # 1980s-90s: modern reliability
+    elif year < 2020:
+        return 1.0  # 2000s-2010s: highly reliable
+    else:
+        return 0.8  # 2020s: cutting-edge reliability
 
 
 def get_crash_mult(time):
-    return ERA_CRASH_MULTIPLIER
+    """
+    Crash rates decline as safety improves, but later eras push limits again.
+    """
+    year = time.year
+    if year < 1955:
+        return 1.5  # Early era: dangerous
+    elif year < 1970:
+        return 1.3  # 1960s: still risky
+    elif year < 1985:
+        return 1.1  # 1970s-80s: safety improvements
+    elif year < 2000:
+        return 1.0  # 1990s: modern safety
+    elif year < 2020:
+        return 0.9  # 2000s-2010s: very safe
+    else:
+        return 1.0  # 2020s: pushing limits again with speed
+
+
+def get_era_name(year):
+    """Get the name of the current racing era."""
+    if year < 1950:
+        return "Post-War Revival"
+    elif year < 1960:
+        return "Golden Age"
+    elif year < 1970:
+        return "Sponsorship Era"
+    elif year < 1980:
+        return "Ground Effect Era"
+    elif year < 1990:
+        return "Turbo Era"
+    elif year < 2000:
+        return "High-Tech Era"
+    elif year < 2010:
+        return "Aero Dominance"
+    elif year < 2020:
+        return "Hybrid Era"
+    elif year < 2025:
+        return "Sustainable Era"
+    else:
+        return "Future Racing"
+
+
+def get_era_description(year):
+    """Get a description of the current era's characteristics."""
+    if year < 1950:
+        return "Grids rebuilt from pre-war remnants. Passion over technology."
+    elif year < 1960:
+        return "Front-engined roadsters rule. Privateers thrive alongside works teams."
+    elif year < 1970:
+        return "Rear engines revolutionize racing. Commercial sponsorship arrives."
+    elif year < 1980:
+        return "Aerodynamic ground effect changes everything. Danger peaks then regulations tighten."
+    elif year < 1990:
+        return "Turbochargers deliver incredible power. Electronics begin to influence racing."
+    elif year < 2000:
+        return "Active suspension and traction control emerge. Costs spiral upward."
+    elif year < 2010:
+        return "Aerodynamics dominate car design. Overtaking becomes difficult."
+    elif year < 2020:
+        return "Hybrid power units arrive. Efficiency matters alongside speed."
+    elif year < 2025:
+        return "Sustainable fuels and reduced emissions. Racing adapts to a changing world."
+    else:
+        return "Autonomous assistance systems and electric hybrids. The future of racing."
+
+
+def get_era_speed_factor(year):
+    """
+    Speed factor increases over time as cars get faster.
+    Affects lap times, pursuit gaps, etc.
+    """
+    if year < 1950:
+        return 1.0
+    elif year < 1960:
+        return 1.1
+    elif year < 1970:
+        return 1.25
+    elif year < 1980:
+        return 1.4
+    elif year < 1990:
+        return 1.6
+    elif year < 2000:
+        return 1.8
+    elif year < 2010:
+        return 2.0
+    elif year < 2020:
+        return 2.1
+    else:
+        return 2.3  # Futuristic speed
 
 
 # Garage upgrade system
