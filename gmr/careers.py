@@ -815,6 +815,179 @@ def maybe_expand_enzoni_to_three_cars(state, time):
         )
 
 
+def show_driver_profile(state, driver):
+    """
+    Show detailed career profile for a driver.
+    Returns 'hire' if user wants to hire, 'back' otherwise.
+    """
+    name = driver.get("name", "Unknown")
+    
+    while True:
+        print("\n" + "=" * 60)
+        print(f"  DRIVER PROFILE: {name.upper()}")
+        print("=" * 60)
+        
+        # Basic info
+        age = driver.get("age", "?")
+        country = driver.get("country", "Unknown")
+        constructor = driver.get("constructor", "Independent")
+        fame = driver.get("fame", 0)
+        
+        print(f"\n  Age: {age}  |  Country: {country}  |  Fame: {fame}")
+        print(f"  Current Team: {constructor}")
+        print(f"  Career Stage: {describe_career_phase(driver)}")
+        
+        # Skills
+        print("\n  --- SKILLS ---")
+        print(f"  Pace: {driver.get('pace', '?')}/10")
+        print(f"  Consistency: {driver.get('consistency', '?')}/10")
+        print(f"  Aggression: {driver.get('aggression', '?')}/10")
+        print(f"  Mechanical Sympathy: {driver.get('mechanical_sympathy', '?')}/10")
+        print(f"  Wet Skill: {driver.get('wet_skill', '?')}/10")
+        
+        # Career stats from driver_histories
+        history = None
+        if hasattr(state, 'driver_histories') and state.driver_histories:
+            history = state.driver_histories.get(name)
+        
+        if history:
+            summary = history.get_career_summary()
+            
+            print("\n  --- CAREER STATISTICS ---")
+            print(f"  Seasons: {summary['years_active']}  |  Starts: {summary['starts']}")
+            print(f"  Wins: {summary['wins']}  |  Podiums: {summary['podiums']}  |  DNFs: {summary['dnfs']}")
+            print(f"  Total Points: {summary['points']}  |  Prize Money: £{summary['prize_money']:,}")
+            
+            if summary['best_finish']:
+                print(f"  Best Finish: P{summary['best_finish']}")
+            
+            if summary['championships'] > 0:
+                print(f"  🏆 CHAMPIONSHIPS: {summary['championships']}")
+            elif summary['best_championship']:
+                print(f"  Best Championship: P{summary['best_championship']}")
+            
+            # Streaks
+            best_win_streak = summary.get('best_win_streak', 0)
+            best_podium_streak = summary.get('best_podium_streak', 0)
+            if best_win_streak > 1:
+                print(f"  Best Win Streak: {best_win_streak}")
+            if best_podium_streak > 2:
+                print(f"  Best Podium Streak: {best_podium_streak}")
+            
+            # Team history
+            if history.team_history:
+                print("\n  --- TEAM HISTORY ---")
+                for stint in history.team_history:
+                    years = f"{stint['start_year']}"
+                    if stint['end_year'] and stint['end_year'] != stint['start_year']:
+                        years += f"-{stint['end_year']}"
+                    elif stint['end_year'] is None:
+                        years += "-present"
+                    
+                    print(f"  {stint['constructor']} ({years})")
+                    print(f"    Races: {stint['races']}  |  Wins: {stint['wins']}  |  Points: {stint['points']}")
+            
+            # Awards
+            if history.awards:
+                print("\n  --- AWARDS & ACHIEVEMENTS ---")
+                for award in history.awards:
+                    print(f"  🏆 {award['year']}: {award['award_type']} - {award['details']}")
+            
+            # Season-by-season
+            if history.seasons:
+                print("\n  --- SEASON RESULTS ---")
+                for year in sorted(history.seasons.keys(), reverse=True)[:5]:  # Last 5 seasons
+                    s = history.seasons[year]
+                    champ_pos = s.get('championship_position', '-')
+                    print(f"  {year}: {s['wins']}W/{s['podiums']}P in {s['starts']} races | "
+                          f"{s['points']} pts | Champ: P{champ_pos} | {s['constructor']}")
+        else:
+            # No history yet (new to racing or early game)
+            print("\n  --- CAREER STATISTICS ---")
+            print("  No race results recorded yet.")
+            
+            # Check legacy stats
+            legacy = state.driver_career.get(name) if hasattr(state, 'driver_career') else None
+            if legacy and legacy.get('starts', 0) > 0:
+                print(f"  (Legacy data: {legacy['starts']} starts, {legacy['wins']} wins, {legacy['podiums']} podiums)")
+        
+        # Menu
+        print("\n" + "-" * 40)
+        print("  1. Hire this driver")
+        print("  2. View recent race results")
+        print("  3. Back to driver list")
+        
+        choice = input("\n> ").strip()
+        
+        if choice == "1":
+            return "hire"
+        elif choice == "2":
+            show_driver_race_history(state, driver)
+        elif choice == "3" or choice == "":
+            return "back"
+        else:
+            print("Invalid choice.")
+
+
+def show_driver_race_history(state, driver):
+    """Show detailed race-by-race results for a driver."""
+    name = driver.get("name", "Unknown")
+    
+    history = None
+    if hasattr(state, 'driver_histories') and state.driver_histories:
+        history = state.driver_histories.get(name)
+    
+    if not history or not history.race_results:
+        print("\n  No race results recorded for this driver.")
+        input("\n  Press Enter to continue...")
+        return
+    
+    print("\n" + "=" * 60)
+    print(f"  RACE HISTORY: {name.upper()}")
+    print("=" * 60)
+    
+    # Show results grouped by year, most recent first
+    results_by_year = {}
+    for r in history.race_results:
+        year = r['year']
+        if year not in results_by_year:
+            results_by_year[year] = []
+        results_by_year[year].append(r)
+    
+    for year in sorted(results_by_year.keys(), reverse=True):
+        print(f"\n  === {year} ===")
+        
+        # Season summary
+        if year in history.seasons:
+            s = history.seasons[year]
+            print(f"  Season: {s['wins']}W/{s['podiums']}P from {s['starts']} starts | {s['points']} pts")
+        
+        for r in results_by_year[year]:
+            conditions = ""
+            if r['wet']:
+                conditions = " 🌧️"
+            elif r['hot']:
+                conditions = " ☀️"
+            
+            if r['dnf']:
+                reason_emoji = "💥" if r['dnf_reason'] == "crash" else "🔧"
+                print(f"  Week {r['week']:2}: {r['race']:<30} DNF ({r['dnf_reason']}) {reason_emoji}{conditions}")
+            else:
+                pos = r['position']
+                pos_str = f"P{pos}"
+                if pos == 1:
+                    pos_str = "🥇 P1"
+                elif pos == 2:
+                    pos_str = "🥈 P2"
+                elif pos == 3:
+                    pos_str = "🥉 P3"
+                
+                pts_str = f"+{r['points']}pts" if r['points'] > 0 else ""
+                print(f"  Week {r['week']:2}: {r['race']:<30} {pos_str:8} {pts_str:8} ({r['constructor']}){conditions}")
+    
+    input("\n  Press Enter to continue...")
+
+
 def show_driver_market(state):
     while True:
         print("\n=== Driver Market ===")
@@ -878,21 +1051,32 @@ def show_driver_market(state):
             )
             print(f"   Registered constructor: {d['constructor']}")
 
-        choice = input("\nEnter the number of a driver to hire, or press Enter to go back: ").strip()
+        print("\n" + "-" * 40)
+        print("Options:")
+        print("  [number] - View driver profile / hire")
+        print("  [Enter]  - Back to main menu")
+        
+        choice = input("\n> ").strip()
 
         if choice == "":
             return  # back to main menu
 
         if not choice.isdigit():
-            print("Invalid input. No hiring done.")
-            return
+            print("Invalid input.")
+            continue
 
         idx = int(choice)
         if idx < 1 or idx > len(market_drivers):
             print("Invalid driver selection.")
-            return
+            continue
 
         selected_driver = market_drivers[idx - 1]
+        
+        # Show driver profile with options
+        action = show_driver_profile(state, selected_driver)
+        
+        if action != "hire":
+            continue  # Back to market list
 
         # --- Fame vs prestige gate: some drivers won't sign for small teams ---
         can_sign, required_prestige = can_team_sign_driver(state, selected_driver)

@@ -1975,12 +1975,15 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
     finishers: list of (driver_dict, performance)
     retired: list of (driver_dict, reason) where reason is "engine" or "crash" (or "unknown")
     """
+    from gmr.core_state import DriverCareerHistory
 
     # Safety for old saves
     if not hasattr(state, "race_history") or state.race_history is None:
         state.race_history = []
     if not hasattr(state, "driver_career") or state.driver_career is None:
         state.driver_career = {}
+    if not hasattr(state, "driver_histories") or state.driver_histories is None:
+        state.driver_histories = {}
 
     entry = {
         "year": time.year,
@@ -2009,6 +2012,10 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
         })
 
         name = d.get("name")
+        constructor = d.get("constructor", "Independent")
+        country = d.get("country", "Unknown")
+        
+        # Update legacy driver_career dict
         c = state.driver_career.get(name, {
             "starts": 0,
             "wins": 0,
@@ -2037,6 +2044,25 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
             c["best_finish"] = pos
 
         state.driver_career[name] = c
+        
+        # Update detailed driver history
+        if name not in state.driver_histories:
+            state.driver_histories[name] = DriverCareerHistory(name, country)
+        
+        history = state.driver_histories[name]
+        history.record_race(
+            year=time.year,
+            week=season_week,
+            race_name=race_name,
+            position=pos,
+            constructor=constructor,
+            points=pts,
+            prize=prize,
+            dnf=False,
+            dnf_reason=None,
+            wet=bool(is_wet),
+            hot=bool(is_hot)
+        )
 
     # ---- DNFs ----
     for d, reason in retired:
@@ -2047,6 +2073,10 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
         })
 
         name = d.get("name")
+        constructor = d.get("constructor", "Independent")
+        country = d.get("country", "Unknown")
+        
+        # Update legacy driver_career dict
         c = state.driver_career.get(name, {
             "starts": 0,
             "wins": 0,
@@ -2067,6 +2097,25 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
             c["crash_dnfs"] += 1
 
         state.driver_career[name] = c
+        
+        # Update detailed driver history
+        if name not in state.driver_histories:
+            state.driver_histories[name] = DriverCareerHistory(name, country)
+        
+        history = state.driver_histories[name]
+        history.record_race(
+            year=time.year,
+            week=season_week,
+            race_name=race_name,
+            position=None,  # DNF
+            constructor=constructor,
+            points=0,
+            prize=0,
+            dnf=True,
+            dnf_reason=reason,
+            wet=bool(is_wet),
+            hot=bool(is_hot)
+        )
 
     state.race_history.append(entry)
     

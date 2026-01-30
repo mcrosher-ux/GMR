@@ -35,13 +35,33 @@ def show_career_menu(state, time):
         print(f"    Career podiums: {player.career_podiums}")
         print(f"    Companies founded: {len(player.companies_founded)}")
         
-        # Personal stats
-        print(f"\n  Personal Attributes:")
-        print(f"    Business acumen: {player.business_acumen}/10")
-        print(f"    Technical knowledge: {player.technical_knowledge}/10")
-        print(f"    Reputation: {player.reputation}/10")
+        # Skills
+        print(f"\n  Skills:")
+        tech_eff = player.get_effective_technical()
+        if player.era_adaptation < 1.0:
+            print(f"    Technical Knowledge: {player.technical_knowledge}/10 (Era penalty: {tech_eff:.1f} effective)")
+        else:
+            print(f"    Technical Knowledge: {player.technical_knowledge}/10")
+        print(f"    Business: {player.business}/10")
+        print(f"    Leadership: {player.leadership}/10")
+        print(f"    Reputation: {player.reputation:.1f}/10")
+        
+        # Personality traits
+        print(f"\n  Personality:")
+        print(f"    Risk Tolerance: {player.risk_tolerance}/10")
+        print(f"    Ambition: {player.ambition}/10")
+        print(f"    Integrity: {player.integrity}/10")
+        print(f"    Patience: {player.patience}/10")
+        
+        # Component experience
+        if any(v > 0 for v in player.component_experience.values()):
+            print(f"\n  Technical Experience:")
+            for comp, count in player.component_experience.items():
+                if count > 0:
+                    print(f"    {comp.title()}: {count} built")
+        
         if age >= 70:
-            print(f"    Health: {player.health}/10")
+            print(f"\n  Health: {player.health}/10")
         
         # Menu options
         print("\n  Options:")
