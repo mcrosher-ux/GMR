@@ -126,14 +126,42 @@ class RaceSimulator:
             
             # Decide incidents
             if random.random() < engine_fail_chance:
+                # Build breakdown for engine failure
+                engine_factors = []
+                if car_reliability < 5:
+                    engine_factors.append(f"unreliable machinery")
+                if mech < 5:
+                    engine_factors.append(f"poor mechanical sympathy")
+                if self.track_profile.get("engine_danger", 1.0) > 1.1:
+                    engine_factors.append(f"demanding circuit")
+                if self.is_hot:
+                    engine_factors.append(f"extreme heat")
+                if not engine_factors:
+                    engine_factors.append("bad luck")
+                
                 incidents[d.get("name")] = {
                     "type": "engine",
                     "stage_idx": random.randint(0, 2),
+                    "breakdown": engine_factors,
                 }
             elif random.random() < crash_chance:
+                # Build breakdown for crash
+                crash_factors = []
+                if consistency < 5:
+                    crash_factors.append(f"inconsistent driving")
+                if aggression > 6:
+                    crash_factors.append(f"over-aggressive style")
+                if self.track_profile.get("crash_danger", 1.0) > 1.1:
+                    crash_factors.append(f"treacherous circuit")
+                if self.is_wet:
+                    crash_factors.append(f"slippery conditions")
+                if not crash_factors:
+                    crash_factors.append("a racing incident")
+                
                 incidents[d.get("name")] = {
                     "type": "crash", 
                     "stage_idx": random.randint(0, 2),
+                    "breakdown": crash_factors,
                 }
         
         return incidents
@@ -186,6 +214,9 @@ class RaceSimulator:
                         self.active_drivers.discard(name)
                         
                         # Record the incident with flavor
+                        breakdown = incident_info.get("breakdown", ["unknown causes"])
+                        reason_text = breakdown[0] if breakdown else "unknown causes"
+                        
                         if incident_info["type"] == "engine":
                             flavors = [
                                 f"{name}'s engine expires in a cloud of smoke",
@@ -193,6 +224,8 @@ class RaceSimulator:
                                 f"{name} pulls off with terminal engine damage",
                                 f"A plume of oil smoke marks the end of {name}'s race",
                             ]
+                            stage_result["incidents"].append(random.choice(flavors))
+                            stage_result["incidents"].append(f"   └─ Cause: {reason_text}")
                         else:
                             flavors = [
                                 f"{name} spins into the barriers and is out",
@@ -200,7 +233,8 @@ class RaceSimulator:
                                 f"A dramatic crash takes {name} out of the race",
                                 f"{name} slides off into the gravel trap — race over",
                             ]
-                        stage_result["incidents"].append(random.choice(flavors))
+                            stage_result["incidents"].append(random.choice(flavors))
+                            stage_result["incidents"].append(f"   └─ Cause: {reason_text}")
                         break
         
         # Remove DNF'd drivers (AI)
@@ -284,6 +318,23 @@ class RaceSimulator:
                 
                 # Apply immediate damage to the car
                 if player_incident == "engine":
+                    # Build breakdown for engine failure
+                    engine_factors = []
+                    if car_reliability < 5:
+                        engine_factors.append("unreliable engine")
+                    if condition_factor < 0.5:
+                        engine_factors.append("poor engine condition")
+                    if mech < 5:
+                        engine_factors.append("poor mechanical sympathy")
+                    if self.track_profile.get("engine_danger", 1.0) > 1.1:
+                        engine_factors.append("demanding circuit")
+                    if self.is_hot:
+                        engine_factors.append("extreme heat")
+                    if self.player_engine_mult > 1.1:
+                        engine_factors.append("aggressive push strategy")
+                    if not engine_factors:
+                        engine_factors.append("bad luck")
+                    
                     # Engine failure causes major engine damage
                     engine_damage = random.uniform(15, 30)
                     self.game_state.engine_wear = max(0.0, self.game_state.engine_wear - engine_damage)
@@ -295,8 +346,24 @@ class RaceSimulator:
                         f"💥 Oil smoke billows from {player_name}'s car — engine failure!",
                     ]
                     stage_result["incidents"].append(random.choice(flavors))
+                    stage_result["incidents"].append(f"   └─ Cause: {engine_factors[0]}")
                     stage_result["incidents"].append(f"⚠️ Engine damage: -{engine_damage:.0f}% condition")
                 else:
+                    # Build breakdown for crash
+                    crash_factors = []
+                    if consistency < 5:
+                        crash_factors.append("inconsistent driving")
+                    if aggression > 6:
+                        crash_factors.append("over-aggressive style")
+                    if self.track_profile.get("crash_danger", 1.0) > 1.1:
+                        crash_factors.append("treacherous circuit")
+                    if self.is_wet and wet_skill < 5:
+                        crash_factors.append("struggling in the wet")
+                    if self.player_crash_mult > 1.1:
+                        crash_factors.append("pushing too hard")
+                    if not crash_factors:
+                        crash_factors.append("a racing incident")
+                    
                     # Crash causes major chassis damage and some engine damage
                     chassis_damage = random.uniform(20, 40)
                     engine_damage = random.uniform(5, 15)
@@ -310,6 +377,7 @@ class RaceSimulator:
                         f"💥 Disaster! {player_name} hits the wall and is out!",
                     ]
                     stage_result["incidents"].append(random.choice(flavors))
+                    stage_result["incidents"].append(f"   └─ Cause: {crash_factors[0]}")
                     stage_result["incidents"].append(f"⚠️ Chassis damage: -{chassis_damage:.0f}% | Engine damage: -{engine_damage:.0f}%")
                 stage_result["player_dnf"] = player_incident
         
@@ -387,32 +455,63 @@ class RaceSimulator:
         stage_performances.sort(key=lambda x: x[1], reverse=True)
         self.current_positions = [d for d, _ in stage_performances]
         
-        # Detect overtakes - track each pass with the correct position gained
+        # Detect overtakes using sequential simulation
+        # We need to figure out the order of overtakes that transforms old_order into new_order
         new_order = [d.get("name") for d in self.current_positions]
         
-        for new_pos_idx, driver_name in enumerate(new_order):
+        # Build a list of all position changes that occurred
+        # Each entry: (driver_name, old_pos, new_pos, positions_gained)
+        position_changes_raw = []
+        for driver_name in new_order:
             if driver_name not in old_order:
                 continue
-            old_pos_idx = old_order.index(driver_name)
-            
-            # If driver moved up (lower index = higher position)
-            if new_pos_idx < old_pos_idx:
-                # Record each individual overtake with the correct position
-                # Driver passes each person one at a time, gaining positions sequentially
-                # old_pos_idx=5 (P6), new_pos_idx=2 (P3) means they passed people at P5, P4, P3
-                for pass_idx in range(old_pos_idx - 1, new_pos_idx - 1, -1):
-                    if pass_idx >= 0 and pass_idx < len(old_order):
-                        overtaken_name = old_order[pass_idx]
-                        if overtaken_name != driver_name:
-                            # The position they're taking from this person
-                            position_for_this_pass = pass_idx + 1  # 1-indexed
-                            stage_result["overtakes"].append({
-                                "overtaker": driver_name,
-                                "overtaken": overtaken_name,
-                                "new_position": position_for_this_pass,
-                            })
+            old_pos = old_order.index(driver_name)
+            new_pos = new_order.index(driver_name)
+            positions_gained = old_pos - new_pos  # Positive = moved up
+            if positions_gained > 0:
+                position_changes_raw.append((driver_name, old_pos, new_pos, positions_gained))
         
-        # Record position changes
+        # Sort by who gained the most positions first, then by final position
+        # This gives us a reasonable order for when overtakes might have happened
+        position_changes_raw.sort(key=lambda x: (-x[3], x[2]))
+        
+        # Now simulate the overtakes sequentially, updating a working order as we go
+        # Start from old_order and apply overtakes one by one
+        working_order = list(old_order)
+        all_overtakes = []
+        
+        # Process each driver who gained positions
+        for driver_name, orig_old_pos, final_new_pos, _ in position_changes_raw:
+            # Find where this driver currently is in working_order
+            current_pos = working_order.index(driver_name)
+            
+            # They need to move from current_pos to final_new_pos
+            # Each step is one overtake
+            while current_pos > final_new_pos:
+                # The driver passes the person directly ahead of them
+                person_ahead_pos = current_pos - 1
+                person_ahead_name = working_order[person_ahead_pos]
+                
+                # Record the overtake with the position they're taking
+                # Position is 1-indexed
+                position_taken = person_ahead_pos + 1
+                all_overtakes.append({
+                    "overtaker": driver_name,
+                    "overtaken": person_ahead_name,
+                    "new_position": position_taken,
+                })
+                
+                # Update working_order - swap the two drivers
+                working_order[person_ahead_pos] = driver_name
+                working_order[current_pos] = person_ahead_name
+                
+                # Update current position
+                current_pos = person_ahead_pos
+        
+        # Add all overtakes to stage result
+        stage_result["overtakes"] = all_overtakes
+        
+        # Record position changes summary
         for d in self.current_positions:
             name = d.get("name")
             new_pos = new_order.index(name) + 1
@@ -2774,6 +2873,32 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         print(f"\n{'='*60}")
         print(f"  RACE COMPLETE — FINAL CLASSIFICATION")
         print(f"{'='*60}")
+        
+        # Print classified finishers
+        print("\n🏁  FINISHERS:")
+        player_name = state.player_driver.get("name") if state.player_driver else None
+        for pos, (d, perf) in enumerate(finishers, start=1):
+            name = d.get("name")
+            constructor = d.get("constructor", "")
+            if name == player_name:
+                print(f"    \x1b[32mP{pos}. {name} ({constructor})\x1b[0m")
+            else:
+                print(f"    P{pos}. {name} ({constructor})")
+        
+        # Print retirements
+        if dnf_drivers:
+            print("\n❌  RETIREMENTS:")
+            for d in dnf_drivers:
+                name = d.get("name")
+                constructor = d.get("constructor", "")
+                reason = retire_reasons.get(name, "unknown")
+                reason_label = "Engine" if reason == "engine" else "Crash" if reason == "crash" else "DNF"
+                if name == player_name:
+                    print(f"    \x1b[31mDNF. {name} ({constructor}) — {reason_label}\x1b[0m")
+                else:
+                    print(f"    DNF. {name} ({constructor}) — {reason_label}")
+        
+        input("\n  Press Enter to continue...")
         
     else:
         # AI-only race - use simulator without interaction
