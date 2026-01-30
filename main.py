@@ -117,6 +117,146 @@ def normalise_country_name(raw: str) -> str:
     return raw.strip().title()
 
 
+def ask_personality_questions(player_char):
+    """
+    Ask scenario-based questions to determine personality traits.
+    Each question reveals two traits at once based on the answer.
+    """
+    print("\n" + "-" * 40)
+    print("  WHO ARE YOU, REALLY?")
+    print("-" * 40)
+    print("\nBefore you begin, some questions about your character...")
+    print("(Answer honestly - there are no wrong answers)\n")
+    
+    # Question 1: Risk Tolerance + Patience
+    print("=" * 50)
+    print("QUESTION 1:")
+    print("A wealthy backer offers to fund an experimental new engine design.")
+    print("It could be revolutionary... or an expensive failure.")
+    print()
+    print("  A) Take the money and go for it - fortune favours the bold!")
+    print("  B) Accept, but insist on a longer development timeline to do it right")
+    print("  C) Decline - stick with proven technology until we're more established")
+    print("  D) Counter-offer: use their money for incremental improvements instead")
+    print()
+    
+    while True:
+        ans = input("Your choice (A/B/C/D): ").strip().upper()
+        if ans in ['A', 'B', 'C', 'D']:
+            break
+        print("Please enter A, B, C, or D")
+    
+    if ans == 'A':
+        player_char.risk_tolerance = 8
+        player_char.patience = 3
+    elif ans == 'B':
+        player_char.risk_tolerance = 6
+        player_char.patience = 8
+    elif ans == 'C':
+        player_char.risk_tolerance = 2
+        player_char.patience = 5
+    else:  # D
+        player_char.risk_tolerance = 4
+        player_char.patience = 7
+    
+    # Question 2: Ambition + Integrity
+    print("\n" + "=" * 50)
+    print("QUESTION 2:")
+    print("A rival team's chief mechanic approaches you in secret.")
+    print("He'll share their technical secrets if you hire him.")
+    print()
+    print("  A) Hire him immediately - this is how the game is played")
+    print("  B) Hire him for his skills, but tell him to keep their secrets")
+    print("  C) Refuse - you'll beat them fair and square or not at all")
+    print("  D) Report him to his current employer (they might owe you a favour)")
+    print()
+    
+    while True:
+        ans = input("Your choice (A/B/C/D): ").strip().upper()
+        if ans in ['A', 'B', 'C', 'D']:
+            break
+        print("Please enter A, B, C, or D")
+    
+    if ans == 'A':
+        player_char.ambition = 9
+        player_char.integrity = 2
+    elif ans == 'B':
+        player_char.ambition = 7
+        player_char.integrity = 6
+    elif ans == 'C':
+        player_char.ambition = 5
+        player_char.integrity = 9
+    else:  # D
+        player_char.ambition = 6
+        player_char.integrity = 7
+    
+    # Question 3: Fine-tune based on a final scenario
+    print("\n" + "=" * 50)
+    print("QUESTION 3:")
+    print("Your driver is talented but difficult. He's demanding more money")
+    print("and special treatment, threatening to leave mid-season.")
+    print()
+    print("  A) Pay whatever it takes - winning is everything")
+    print("  B) Negotiate firmly but fairly - find a middle ground")
+    print("  C) Call his bluff - no one is bigger than the team")
+    print("  D) Start quietly looking for a replacement while you negotiate")
+    print()
+    
+    while True:
+        ans = input("Your choice (A/B/C/D): ").strip().upper()
+        if ans in ['A', 'B', 'C', 'D']:
+            break
+        print("Please enter A, B, C, or D")
+    
+    # This question adjusts existing traits slightly
+    if ans == 'A':
+        player_char.ambition = min(10, player_char.ambition + 1)
+        player_char.patience = max(1, player_char.patience - 1)
+    elif ans == 'B':
+        player_char.integrity = min(10, player_char.integrity + 1)
+    elif ans == 'C':
+        player_char.risk_tolerance = min(10, player_char.risk_tolerance + 1)
+        player_char.patience = min(10, player_char.patience + 1)
+    else:  # D
+        player_char.patience = min(10, player_char.patience + 1)
+        player_char.ambition = min(10, player_char.ambition + 1)
+    
+    # Display results
+    print("\n" + "=" * 50)
+    print("YOUR CHARACTER PROFILE:")
+    print("=" * 50)
+    
+    def trait_desc(name, value):
+        if value <= 3:
+            level = "Low"
+        elif value <= 6:
+            level = "Moderate"
+        else:
+            level = "High"
+        return f"  {name}: {value}/10 ({level})"
+    
+    print(trait_desc("Risk Tolerance", player_char.risk_tolerance))
+    print(trait_desc("Ambition", player_char.ambition))
+    print(trait_desc("Integrity", player_char.integrity))
+    print(trait_desc("Patience", player_char.patience))
+    
+    # Flavor text based on dominant traits
+    print()
+    if player_char.risk_tolerance >= 7 and player_char.ambition >= 7:
+        print("You're a bold visionary who isn't afraid to gamble big.")
+    elif player_char.integrity >= 7 and player_char.patience >= 7:
+        print("You're a principled builder who plays the long game.")
+    elif player_char.risk_tolerance <= 3 and player_char.patience >= 7:
+        print("You're a cautious strategist who values steady progress.")
+    elif player_char.ambition >= 7 and player_char.integrity <= 4:
+        print("You'll do whatever it takes to reach the top.")
+    else:
+        print("You're a balanced pragmatist who adapts to circumstances.")
+    
+    print("\n(These traits will influence how the world reacts to you)")
+    input("\nPress Enter to continue...")
+
+
 def setup_player(state, time):
     """Set up the player character and their initial company."""
     
@@ -150,6 +290,18 @@ def setup_player(state, time):
             state.player_character.home_country = normalise_country_name(country)
             break
         print("Please enter a country name.")
+    
+    # Ask personality questions
+    ask_personality_questions(state.player_character)
+    
+    # Display starting skills
+    print("\n" + "-" * 40)
+    print("  YOUR SKILLS (Novice)")
+    print("-" * 40)
+    print(f"  Technical Knowledge: {state.player_character.technical_knowledge}/10")
+    print(f"  Business: {state.player_character.business}/10")
+    print(f"  Leadership: {state.player_character.leadership}/10")
+    print("\n  (Skills improve through experience and success)")
     
     # Company setup
     print("\n" + "-" * 40)
@@ -270,6 +422,10 @@ def run_game():
             
             apply_offseason_ageing_and_retirement(state, time)
             offseason_fame_decay(time)
+
+            # Record championship standings BEFORE clearing
+            from gmr.core_state import record_season_championship_standings
+            record_season_championship_standings(state, time.year - 1)
 
             # Clear last season
             state.podiums.clear()
