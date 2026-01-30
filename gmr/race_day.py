@@ -5,7 +5,7 @@ import random
 from gmr.constants import MONTHS, WEATHER_WET_CHANCE
 from gmr.data import tracks
 from gmr.core_time import get_season_week
-from gmr.calendar import generate_calendar_for_year
+from gmr.calendar import generate_calendar_for_year, get_clashes_for_year
 from gmr.race_engine import run_ai_only_race, simulate_qualifying, run_race, roll_race_weather
 
 
@@ -381,11 +381,66 @@ def choose_race_strategy(state):
         print("Please choose 1 (Attack), 2 (Neutral), or 3 (Nurse).")
 
 
+def handle_race_clash_choice(state, time, season_week, clash_races):
+    """
+    When multiple races occur on the same week, let the player choose which to enter.
+    Returns (chosen_race_name, skipped_race_name) or (None, None) if skipping both.
+    """
+    print("\n" + "=" * 60)
+    print("⚔️  RACE CLASH - SCHEDULING CONFLICT  ⚔️")
+    print("=" * 60)
+    print("\nTwo races are scheduled for the same week!")
+    print("Your team can only attend ONE event. Choose wisely.\n")
 
+    for i, race_name in enumerate(clash_races, 1):
+        track = tracks.get(race_name, {})
+        country = track.get("country", "Unknown")
+        fame_mult = track.get("fame_mult", 1.0)
+        
+        # Determine prestige tier
+        if fame_mult >= 1.2:
+            tier = "⭐⭐⭐ MAJOR"
+        elif fame_mult >= 0.9:
+            tier = "⭐⭐ Standard"
+        else:
+            tier = "⭐ Club"
+        
+        print(f"  {i}. {race_name}")
+        print(f"     Location: {country}")
+        print(f"     Prestige: {tier} (×{fame_mult:.2f} fame)")
+        
+        # Check nationality restrictions
+        allowed_nats = track.get("allowed_nationalities")
+        if allowed_nats:
+            print(f"     ⚠️  Restricted to: {', '.join(allowed_nats)} drivers")
+        print()
 
+    print("  3. Skip both races this week")
+    print()
 
-
-
+    while True:
+        choice = input("Which race do you want to enter? > ").strip()
+        if choice == "1":
+            chosen = clash_races[0]
+            skipped = clash_races[1]
+            print(f"\nYou've chosen to enter {chosen}.")
+            print(f"The {skipped} will run without your team.")
+            input("\nPress Enter to continue...")
+            return chosen, skipped
+        elif choice == "2":
+            chosen = clash_races[1]
+            skipped = clash_races[0]
+            print(f"\nYou've chosen to enter {chosen}.")
+            print(f"The {skipped} will run without your team.")
+            input("\nPress Enter to continue...")
+            return chosen, skipped
+        elif choice == "3":
+            print("\nYou've decided to skip both races this week.")
+            print("Your team will rest while both events run without you.")
+            input("\nPress Enter to continue...")
+            return None, clash_races  # Return None and list of races to run AI-only
+        else:
+            print("Please enter 1, 2, or 3.")
 
 
 def handle_race_week(state, time):
@@ -409,7 +464,28 @@ def handle_race_week(state, time):
 
     season_week = get_season_week(time)
     race_calendar = generate_calendar_for_year(time.year)
-    race_name = race_calendar.get(season_week)
+    
+    # Check for race clashes first
+    clashes = get_clashes_for_year(time.year)
+    skipped_race = None
+    
+    if season_week in clashes:
+        clash_races = clashes[season_week]
+        chosen, skipped = handle_race_clash_choice(state, time, season_week, clash_races)
+        
+        if chosen is None:
+            # Player chose to skip both races - run them AI-only
+            for skip_race in skipped:
+                skip_track = tracks.get(skip_race, {})
+                run_ai_only_race(state, skip_race, time, season_week, skip_track)
+            state.completed_races.add(season_week)
+            return
+        else:
+            race_name = chosen
+            skipped_race = skipped
+    else:
+        race_name = race_calendar.get(season_week)
+    
     if race_name is None:
         return
 
@@ -465,6 +541,14 @@ def handle_race_week(state, time):
         input("\nPress Enter to continue...")
 
         run_ai_only_race(state, race_name, time, season_week, track_profile)
+        
+        # If there was a clash, run the other race as AI-only too
+        if skipped_race:
+            print(f"\nMeanwhile, at {skipped_race}...")
+            skipped_track = tracks.get(skipped_race, {})
+            run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
+
+        state.completed_races.add(season_week)  # Mark as done to prevent loop
 
         from gmr.sponsorship import maybe_offer_sponsor
         maybe_offer_sponsor(state, time)
@@ -490,12 +574,20 @@ def handle_race_week(state, time):
                 print("You cannot enter this race.")
                 input("\nPress Enter to continue...")
                 run_ai_only_race(state, race_name, time, season_week, track_profile)
+                if skipped_race:
+                    skipped_track = tracks.get(skipped_race, {})
+                    run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
+                state.completed_races.add(season_week)  # Mark as done to prevent loop
                 return
 
             if getattr(state, "tyre_sets", 0) <= 0:
                 print("\nYou have no tyre sets available and cannot start the race.")
                 input("\nPress Enter to continue...")
                 run_ai_only_race(state, race_name, time, season_week, track_profile)
+                if skipped_race:
+                    skipped_track = tracks.get(skipped_race, {})
+                    run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
+                state.completed_races.add(season_week)  # Mark as done to prevent loop
                 return
             
             # ✅ ONLY charge travel if you actually enter the event
@@ -526,11 +618,13 @@ def handle_race_week(state, time):
                             else:
                                 print("You don't have enough money. Skipping the race.")
                                 run_ai_only_race(state, race_name, time, season_week, track_profile)
+                                state.completed_races.add(season_week)  # Mark as done to prevent loop
                                 return
                             break
                         elif sub_choice == "2":
                             print("Skipping the race.")
                             run_ai_only_race(state, race_name, time, season_week, track_profile)
+                            state.completed_races.add(season_week)  # Mark as done to prevent loop
                             return
                         else:
                             print("Please choose 1 or 2.")
@@ -559,11 +653,13 @@ def handle_race_week(state, time):
                             else:
                                 print("You don't have enough money. Skipping the race.")
                                 run_ai_only_race(state, race_name, time, season_week, track_profile)
+                                state.completed_races.add(season_week)  # Mark as done to prevent loop
                                 return
                             break
                         elif sub_choice == "2":
                             print("Skipping the race.")
                             run_ai_only_race(state, race_name, time, season_week, track_profile)
+                            state.completed_races.add(season_week)  # Mark as done to prevent loop
                             return
                         else:
                             print("Please choose 1 or 2.")
@@ -577,6 +673,14 @@ def handle_race_week(state, time):
 
             # ❌ NO TRAVEL CHARGE when skipping
             run_ai_only_race(state, race_name, time, season_week, track_profile)
+            
+            # If there was a clash, run the other race as AI-only too
+            if skipped_race:
+                print(f"\nMeanwhile, at {skipped_race}...")
+                skipped_track = tracks.get(skipped_race, {})
+                run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
+            
+            state.completed_races.add(season_week)  # Mark as done to prevent loop
             return
         else:
             print("Please choose 1 to race or 2 to skip.")
@@ -631,6 +735,8 @@ def handle_race_week(state, time):
             choose_race_strategy(state)
             run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot)
 
+            input("\nPress Enter to see the race weekend summary...")
+
             # Dump race news NOW so it feels like the race happened before any contract talk
             if state.news:
                 print("\n--- Race Weekend News ---")
@@ -638,6 +744,18 @@ def handle_race_week(state, time):
                     print(item)
                 print("-------------------------")
                 state.news.clear()
+
+            # If there was a clash, run the skipped race as AI-only
+            if skipped_race:
+                print(f"\nMeanwhile, at {skipped_race}...")
+                skipped_track = tracks.get(skipped_race, {})
+                run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
+                if state.news:
+                    print("\n--- Results from the other race ---")
+                    for item in state.news:
+                        print(item)
+                    print("-----------------------------------")
+                    state.news.clear()
 
             return  # ✅ leave race week after the race runs (prevents infinite loop)
   

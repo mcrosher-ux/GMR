@@ -458,6 +458,81 @@ tracks = {
         "suspension_importance": 1.05,
     },
 
+    # ==========================================================================
+    # AMERICAS CIRCUITS (from 1948)
+    # ==========================================================================
+    
+    "Autódromo General San Martín": {
+        "country": "Argentina",
+        "flavor": "The pride of South American motorsport, Autódromo General San Martín is a cathedral of speed where Fangio's legend was born. The passionate Argentine crowds pack the grandstands, waving blue and white flags and singing for their heroes. The sweltering summer heat tests man and machine, and victory here grants instant legend status across the continent. The post-race asado celebrations are legendary.",
+        "engine_danger": 1.12,
+        "crash_danger": 1.08,
+        "pace_weight": 1.10,
+        "consistency_weight": 0.94,
+        "wet_chance": 0.15,
+        "base_hot_chance": 0.60,        # Southern hemisphere summer = hot
+        "heat_intensity": 1.20,
+        "weight_pace_importance": 0.5,
+        "weight_crash_importance": 0.6,
+        "length_km": 6.8,
+        "race_distance_km": 270.0,
+        "fame_mult": 1.30,
+        "xp_mult": 1.30,
+        "fame_cap": 4.0,
+        "suspension_importance": 0.90,
+        "appearance_base": 65,
+        "appearance_prestige_mult": 18,
+        "grid_size": 28,
+    },
+    
+    "Circuito da Estrada Velha": {
+        "country": "Brazil",
+        "allowed_nationalities": ["Brazil", "Argentina", "USA"],
+        "flavor": "A dusty proving ground on the outskirts of São Paulo, Circuito da Estrada Velha is where Brazilian dreams of motorsport glory begin. The undulating layout through the favela hills tests mechanical sympathy, and the tropical heat demands careful car management. Local fans bring drums and celebration, turning race day into a carnival of speed and passion.",
+        "engine_danger": 1.02,
+        "crash_danger": 1.05,
+        "pace_weight": 1.02,
+        "consistency_weight": 1.00,
+        "wet_chance": 0.35,             # Tropical afternoon storms
+        "base_hot_chance": 0.50,
+        "heat_intensity": 1.12,
+        "weight_pace_importance": 1.0,
+        "weight_crash_importance": 0.9,
+        "length_km": 3.8,
+        "race_distance_km": 175.0,      # Shorter club race
+        "fame_mult": 0.75,
+        "xp_mult": 0.75,
+        "fame_cap": 2.2,
+        "appearance_base": 22,
+        "appearance_prestige_mult": 13,
+        "grid_size": 18,
+        "suspension_importance": 1.10,
+    },
+    
+    "Copper State Circuit": {
+        "country": "USA",
+        "allowed_nationalities": ["USA", "UK", "Argentina", "Brazil"],
+        "flavor": "Carved into the Arizona desert, Copper State Circuit is a rugged circuit where the sun beats down mercilessly on both driver and machine. The red dust kicks up behind every car, and the dry heat pushes engines to their limits. American racers from the dusty oval circuits come here to test themselves against European machinery. The sunsets over the canyon are spectacular, and the roadside diners serve the best pie west of the Mississippi.",
+        "engine_danger": 1.05,
+        "crash_danger": 1.02,
+        "pace_weight": 1.00,
+        "consistency_weight": 1.02,
+        "wet_chance": 0.08,             # Desert = almost never wet
+        "base_hot_chance": 0.70,        # Arizona is brutal
+        "heat_intensity": 1.25,
+        "weight_pace_importance": 0.95,
+        "weight_crash_importance": 0.85,
+        "length_km": 4.2,
+        "race_distance_km": 200.0,
+        "fame_mult": 0.85,
+        "xp_mult": 0.85,
+        "fame_cap": 2.5,
+        "appearance_base": 28,
+        "appearance_prestige_mult": 14,
+        "grid_size": 22,
+        "suspension_importance": 1.05,
+    },
+
 
 
 }
