@@ -1,6 +1,6 @@
 # GMR - Motorsport Management Game
 
-A motorsport management simulation game written in Python for now. Build your racing team from humble garage in 1947 and compete in the chaotic world of Grand Prix racing through multiple decades and eras akin to Greydog Software simulations and Champ Manager 97.
+A motorsport management simulation game written in Python. Build your racing team from a humble garage in 1947 and compete in the chaotic world of Grand Prix racing through multiple decades and eras akin to Greydog Software simulations and Champ Manager 97.
 
 ## Description
 
@@ -27,7 +27,7 @@ Manage your team's finances, hire drivers, develop your car, secure sponsorships
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/GMR.git
+   git clone https://github.com/mcrosher-ux/GMR.git
    cd GMR
    ```
 
@@ -49,14 +49,6 @@ The game is played through a text-based interface. You'll make decisions each we
 
 
 Follow the on-screen prompts to manage your team and compete in races.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is open source. Please check the license file for details.
 
 ## Credits
 
