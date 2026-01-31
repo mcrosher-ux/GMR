@@ -1,6 +1,5 @@
 """Tests for world_logic.py - Driver generation and car calculations."""
 
-import pytest
 from gmr.world_logic import (
     generate_random_driver_name,
     calculate_car_speed,
@@ -170,25 +169,30 @@ class TestDriverAgeProfiles:
     
     def test_initialise_driver_age_profiles(self):
         """Test that driver age profiles are initialized."""
-        # This modifies the global drivers list
-        initialise_driver_age_profiles()
-        
-        # Check that each driver has the new fields
-        for driver in drivers:
-            assert "age" in driver
-            assert "peak_age" in driver
-            assert "decline_age" in driver
+        # Preserve original global drivers list to maintain test isolation
+        original_drivers = [driver.copy() for driver in drivers]
+        try:
+            # This modifies the global drivers list
+            initialise_driver_age_profiles()
             
-            # Peak age should be reasonable
-            assert driver["peak_age"] >= 25
-            assert driver["peak_age"] <= 45
-            
-            # Decline should be after peak
-            assert driver["decline_age"] > driver["peak_age"]
-            
-            # Age relationships should make sense
-            age = driver["age"]
-            peak = driver["peak_age"]
-            decline = driver["decline_age"]
-            
-            assert decline > peak
+            # Check that each driver has the new fields
+            for driver in drivers:
+                assert "age" in driver
+                assert "peak_age" in driver
+                assert "decline_age" in driver
+                
+                # Peak age should be reasonable
+                assert driver["peak_age"] >= 25
+                assert driver["peak_age"] <= 45
+                
+                # Decline should be after peak
+                assert driver["decline_age"] > driver["peak_age"]
+                
+                # Age relationships should make sense
+                peak = driver["peak_age"]
+                decline = driver["decline_age"]
+                
+                assert decline > peak
+        finally:
+            # Restore the original global drivers list
+            drivers[:] = original_drivers

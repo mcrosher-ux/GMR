@@ -1,6 +1,5 @@
 """Tests for constants.py - Game constants and helper functions."""
 
-import pytest
 from gmr.constants import (
     MONTHS,
     POINTS_TABLE,

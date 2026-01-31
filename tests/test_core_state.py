@@ -1,6 +1,5 @@
 """Tests for core_state.py - GameState and PlayerCharacter classes."""
 
-import pytest
 from gmr.core_state import GameState, PlayerCharacter
 
 
@@ -55,7 +54,7 @@ class TestPlayerCharacter:
         assert player.years_in_current_role == 0
         
         # Life status
-        assert player.is_alive == True
+        assert player.is_alive is True
         assert player.death_year is None
         assert player.death_reason is None
     
@@ -70,7 +69,7 @@ class TestPlayerCharacter:
         assert player.technical_xp == 10
         assert player.technical_knowledge == initial_level
         
-        # Gain enough XP to level up (need 200 total for level 2->3)
+        # Gain enough XP to level up (need 200 XP threshold for level 2->3)
         result = player.gain_technical_xp(200)
         assert result is not None
         assert "Technical knowledge improved" in result
@@ -87,7 +86,7 @@ class TestPlayerCharacter:
         assert player.business_xp == 10
         assert player.business == initial_level
         
-        # Gain enough to level up (need 200 total for level 2->3)
+        # Gain enough to level up (need 200 XP threshold for level 2->3)
         result = player.gain_business_xp(200)
         assert result is not None
         assert "Business skill improved" in result
@@ -114,7 +113,7 @@ class TestGameState:
         
         # Driver state
         assert state.player_driver is None
-        assert state.player_driver_injured == False
+        assert state.player_driver_injured is False
         assert state.player_driver_injury_weeks_remaining == 0
         assert state.player_driver_injury_severity == 0
         
@@ -160,7 +159,7 @@ class TestGameState:
         state = GameState()
         
         # Initially no injury
-        assert state.player_driver_injured == False
+        assert state.player_driver_injured is False
         assert state.player_driver_injury_weeks_remaining == 0
         assert state.player_driver_injury_severity == 0
         
@@ -169,6 +168,6 @@ class TestGameState:
         state.player_driver_injury_weeks_remaining = 3
         state.player_driver_injury_severity = 5
         
-        assert state.player_driver_injured == True
+        assert state.player_driver_injured is True
         assert state.player_driver_injury_weeks_remaining == 3
         assert state.player_driver_injury_severity == 5

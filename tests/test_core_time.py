@@ -1,6 +1,5 @@
 """Tests for core_time.py - GameTime and time management."""
 
-import pytest
 from gmr.core_time import GameTime, get_season_week
 from gmr.constants import WEEKS_PER_YEAR
 

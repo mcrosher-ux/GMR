@@ -1,13 +1,11 @@
 """Tests for world_economy.py - Economic simulation."""
 
-import pytest
 from gmr.world_economy import (
     COUNTRIES,
     WorldEconomy,
     is_home_race,
     get_home_crowd_bonus
 )
-from gmr.core_state import GameState
 
 
 class TestCountries:
@@ -88,7 +86,7 @@ class TestIsHomeRace:
         track = {"name": "Monza", "country": "Italy"}
         
         result = is_home_race(driver, track)
-        assert result == True
+        assert result is True
     
     def test_is_home_race_non_matching_country(self):
         """Test detecting non-home race."""
@@ -96,7 +94,7 @@ class TestIsHomeRace:
         track = {"name": "Silverstone", "country": "UK"}
         
         result = is_home_race(driver, track)
-        assert result == False
+        assert result is False
 
 
 class TestGetHomeCrowdBonus:

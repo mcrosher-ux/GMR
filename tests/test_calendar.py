@@ -1,6 +1,5 @@
 """Tests for calendar.py - Calendar generation and race scheduling."""
 
-import pytest
 from gmr.calendar import (
     generate_calendar_for_year,
     get_race_tier,
@@ -70,9 +69,13 @@ class TestGenerateCalendarForYear:
         calendar_1947 = generate_calendar_for_year(1947)
         calendar_1948 = generate_calendar_for_year(1948)
         
+        # Buenos Aires should not be in 1947
+        has_buenos_aires_1947 = "Autódromo General San Martín" in calendar_1947.values()
+        assert not has_buenos_aires_1947
+        
         # Check for Buenos Aires in 1948
-        has_buenos_aires = "Autódromo General San Martín" in calendar_1948.values()
-        assert has_buenos_aires
+        has_buenos_aires_1948 = "Autódromo General San Martín" in calendar_1948.values()
+        assert has_buenos_aires_1948
     
     def test_generate_calendar_1950_adds_union_speedway(self):
         """Test that Union Speedway appears from 1950."""

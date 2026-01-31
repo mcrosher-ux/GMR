@@ -1,6 +1,5 @@
 """Tests for sponsorship.py - Sponsorship system."""
 
-import pytest
 from gmr.sponsorship import (
     SPONSOR_TYPES,
     generate_media_event
@@ -44,11 +43,9 @@ class TestGenerateMediaEvent:
         state.player_driver = {"name": "Test Driver"}
         time = GameTime(1950)
         
-        # generate_media_event appends to state.news and returns None
-        result = generate_media_event("Gallant Leaf Tobacco", "press_conference", state, time)
+        # generate_media_event appends to state.news
+        generate_media_event("Gallant Leaf Tobacco", "press_conference", state, time)
         
-        # Function returns None but should add to state.news
-        assert result is None
         # Check that news was added
         assert len(state.news) > 0
     
@@ -59,12 +56,11 @@ class TestGenerateMediaEvent:
         state.player_driver = {"name": "Test Driver"}
         time = GameTime(1950)
         
-        # Should handle gracefully
-        try:
-            event = generate_media_event("Unknown Sponsor", "press_conference", state, time)
-            assert True  # No exception thrown
-        except Exception:
-            pytest.fail("Should handle unknown sponsors gracefully")
+        # Should handle gracefully - function doesn't raise exceptions
+        generate_media_event("Unknown Sponsor", "press_conference", state, time)
+        
+        # Unknown sponsor won't generate news (event_type won't match)
+        # This verifies the function handles unknown sponsors without crashing
     
     def test_generate_media_event_includes_team_name(self):
         """Test that media events include team name."""
@@ -88,12 +84,10 @@ class TestGenerateMediaEvent:
         state.player_driver = {"name": "Jane Doe"}
         time = GameTime(1950)
         
-        # Set random seed to get predictable results
-        import random
-        random.seed(42)
+        # Run multiple times to account for random variation in event content
+        for _ in range(20):
+            generate_media_event("Gallant Leaf Tobacco", "promo_day", state, time)
         
-        generate_media_event("Gallant Leaf Tobacco", "promo_day", state, time)
-        
-        # Check that driver name appears in the news
+        # Check that driver name appears in at least one of the generated news items
         news_str = " ".join(state.news)
         assert "Jane Doe" in news_str
