@@ -137,7 +137,6 @@ def show_engine_shop(state):
 
     print(f"\nYou have bought and installed the {selected_engine['name']}.")
     print(f"New car stats - Speed: {state.car_speed}, Reliability: {state.car_reliability}")
-    print(f"DEBUG: engine wear={state.engine_wear}, health={state.engine_health}, unit={state.current_engine.get('unit_id')}")
 
     # Player comfort drop: new engine changes power delivery + behaviour
     if state.player_driver:
