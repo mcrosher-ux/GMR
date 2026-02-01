@@ -4,7 +4,10 @@ from gmr.world_economy import (
     COUNTRIES,
     WorldEconomy,
     is_home_race,
-    get_home_crowd_bonus
+    get_home_crowd_bonus,
+    validate_country,
+    get_all_valid_regions,
+    _warned_countries,
 )
 
 
@@ -133,3 +136,144 @@ class TestGetHomeCrowdBonus:
         
         # Higher fame should give better bonus
         assert bonus_high_fame >= bonus_low_fame
+
+
+class TestValidateCountry:
+    """Test suite for country validation."""
+    
+    def test_validate_known_country(self):
+        """Test validating a known country returns correct data."""
+        country_data, region, is_valid = validate_country("Italy")
+        
+        assert is_valid is True
+        assert country_data["name"] == "Italy"
+        assert region == "Southern Europe"
+    
+    def test_validate_all_countries_have_regions(self):
+        """Test that all defined countries have valid regions."""
+        for country_name in COUNTRIES:
+            country_data, region, is_valid = validate_country(country_name)
+            
+            assert is_valid is True, f"Country '{country_name}' failed validation"
+            assert region, f"Country '{country_name}' has no region"
+            assert len(region) > 0, f"Country '{country_name}' has empty region"
+    
+    def test_validate_unknown_country_returns_fallback(self):
+        """Test that unknown country returns fallback data."""
+        # Clear warnings to ensure test sees the warning
+        _warned_countries.discard("Atlantis")
+        
+        country_data, region, is_valid = validate_country("Atlantis")
+        
+        assert is_valid is False
+        assert region == ""
+        # Fallback data should have reasonable defaults
+        assert country_data["base_economy"] == 5
+        assert country_data["population_millions"] == 20
+        assert country_data["motorsport_culture"] == 5
+    
+    def test_validate_unknown_country_typo(self):
+        """Test that a typo is detected as unknown."""
+        # Clear warnings
+        _warned_countries.discard("Itlay")
+        
+        country_data, region, is_valid = validate_country("Itlay")  # Typo for Italy
+        
+        assert is_valid is False
+        assert "Itlay" in _warned_countries  # Warning was logged
+    
+    def test_validate_tracks_have_valid_countries(self):
+        """Test that common track countries are all valid."""
+        # These are countries used by tracks in the game
+        track_countries = [
+            "Italy", "UK", "France", "Germany", "USA", 
+            "Spain", "Belgium", "Switzerland", "Monaco",
+            "Argentina", "Brazil", "Poland", "Japan", "Australia"
+        ]
+        
+        for country in track_countries:
+            country_data, region, is_valid = validate_country(country)
+            assert is_valid is True, f"Track country '{country}' is not defined in COUNTRIES"
+
+
+class TestGetAllValidRegions:
+    """Test suite for region enumeration."""
+    
+    def test_get_all_valid_regions_not_empty(self):
+        """Test that regions are defined."""
+        regions = get_all_valid_regions()
+        
+        assert len(regions) > 0
+    
+    def test_get_all_valid_regions_expected_regions(self):
+        """Test that expected regions exist."""
+        regions = get_all_valid_regions()
+        
+        expected = [
+            "Southern Europe", "Northern Europe", "Western Europe", 
+            "Central Europe", "Eastern Europe", "North America",
+            "South America", "Asia", "Oceania"
+        ]
+        
+        for region in expected:
+            assert region in regions, f"Expected region '{region}' not found"
+    
+    def test_all_countries_have_valid_region(self):
+        """Test that every country's region is in the valid regions set."""
+        valid_regions = get_all_valid_regions()
+        
+        for country_name, country_data in COUNTRIES.items():
+            region = country_data.get("region")
+            assert region in valid_regions, \
+                f"Country '{country_name}' has unknown region '{region}'"
+
+
+class TestWorldEconomyWithUnknownCountry:
+    """Test suite for WorldEconomy handling of unknown countries."""
+    
+    def test_calculate_attendance_unknown_country(self):
+        """Test attendance calculation with unknown country falls back gracefully."""
+        # Clear warnings
+        _warned_countries.discard("Narnia")
+        
+        economy = WorldEconomy()
+        track_data = {
+            "name": "Fantasy Circuit",
+            "country": "Narnia",  # Unknown country
+            "appearance_base": 50,
+            "appearance_prestige_mult": 15,
+        }
+        
+        # Should not crash, should return valid attendance
+        attendance, details = economy.calculate_attendance(
+            "Fantasy Circuit", track_data, 5.0, 5.0
+        )
+        
+        assert attendance > 0
+        assert attendance >= 5000  # Minimum bound
+        assert attendance <= 500000  # Maximum bound
+        assert details["country"] == "Narnia"
+    
+    def test_get_current_economy_unknown_country(self):
+        """Test economy lookup with unknown country returns default."""
+        # Clear warnings
+        _warned_countries.discard("Mordor")
+        
+        economy = WorldEconomy()
+        
+        # Should return default economy (5) without crashing
+        econ = economy.get_current_economy("Mordor")
+        
+        assert econ == 5  # Default
+    
+    def test_get_attendance_modifier_unknown_country(self):
+        """Test attendance modifier with unknown country returns 1.0."""
+        # Clear warnings
+        _warned_countries.discard("Westeros")
+        
+        economy = WorldEconomy()
+        
+        # Should return 1.0 (no modifier) without crashing
+        modifier = economy.get_attendance_modifier("Westeros")
+        
+        assert modifier == 1.0

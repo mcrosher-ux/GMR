@@ -69,10 +69,11 @@ class RaceSimulator:
         for d in self.current_positions:
             self.driver_performance[d.get("name")] = d["pace"] + d["consistency"] * 0.3
         
-        # Player modifiers (cumulative across stages)
-        self.player_perf_mult = 1.0
-        self.player_engine_mult = 1.0
-        self.player_crash_mult = 1.0
+        # Player modifiers (applied per-stage, NOT cumulative to prevent compounding advantage)
+        # These are set fresh each stage based on player's strategy choice
+        self.player_perf_mult = 1.0  # Current stage's performance multiplier
+        self.player_engine_mult = 1.0  # Current stage's engine failure risk multiplier
+        self.player_crash_mult = 1.0  # Current stage's crash risk multiplier
         
         # Track reported home race bonuses (only report once)
         self._reported_home_bonus = set()
@@ -198,8 +199,9 @@ class RaceSimulator:
             "position_changes": [],
         }
         
-        # Apply player strategy multiplier
-        self.player_perf_mult *= player_strategy_mult
+        # Apply player strategy multiplier for THIS stage only (not cumulative)
+        # This prevents compounding advantage (e.g., 1.05^3 = 1.157 unfair bonus)
+        self.player_perf_mult = player_strategy_mult
         
         # Process incidents for this stage
         drivers_to_remove = []
@@ -386,9 +388,15 @@ class RaceSimulator:
                     crash_severity = self.track_profile.get("crash_danger", 1.0)
                     
                     # Higher crash danger tracks = more likely serious injury
-                    fatal_threshold = 0.02 * crash_severity  # ~2-3% base for fatal
-                    serious_threshold = fatal_threshold + 0.08 * crash_severity  # ~10% for serious
-                    minor_threshold = serious_threshold + 0.25  # ~35% for minor
+                    # All thresholds scale with crash_severity and are capped to valid range
+                    fatal_chance = min(0.02 * crash_severity, 0.15)  # 2% per severity, max 15%
+                    serious_chance = min(0.08 * crash_severity, 0.30)  # 8% per severity, max 30%
+                    minor_chance = min(0.25 * crash_severity, 0.40)  # 25% per severity, max 40%
+                    
+                    # Build cumulative thresholds (ensures total never exceeds 0.85, so always some "unscathed" chance)
+                    fatal_threshold = fatal_chance
+                    serious_threshold = fatal_threshold + serious_chance
+                    minor_threshold = min(serious_threshold + minor_chance, 0.85)
                     
                     if injury_roll < fatal_threshold:
                         # Career-ending / fatal injury
@@ -715,10 +723,14 @@ def get_player_stage_decision(stage_idx, is_wet, is_hot):
 def run_interactive_race_stages(simulator, state, race_name, is_wet, is_hot):
     """
     Run the race interactively: simulate each stage, show results, get decision.
-    Returns final stage_mods dict with cumulative multipliers.
+    
+    Returns final stage_mods dict tracking what multipliers were chosen
+    (for summary display - actual multipliers are applied per-stage, not cumulatively).
     """
+    # Track what decisions were made across stages (for summary display only)
+    # Note: The simulator applies these per-stage, NOT cumulatively
     cumulative_mods = {
-        "performance_mult": 1.0,
+        "performance_mult": 1.0,  # Product of all stage choices (informational)
         "engine_fail_mult": 1.0,
         "crash_mult": 1.0,
     }
@@ -732,16 +744,16 @@ def run_interactive_race_stages(simulator, state, race_name, is_wet, is_hot):
             
             print(f"\n  → Strategy set to: {decision['label']}")
             
-            # Apply decision to cumulative mods
+            # Track decisions for summary (informational only)
             cumulative_mods["performance_mult"] *= decision["performance_mult"]
             cumulative_mods["engine_fail_mult"] *= decision["engine_fail_mult"]
             cumulative_mods["crash_mult"] *= decision["crash_mult"]
             
-            # Update simulator's risk multipliers for this stage
+            # Update simulator's risk multipliers for this stage (applied fresh, not cumulative)
             simulator.player_engine_mult = decision["engine_fail_mult"]
             simulator.player_crash_mult = decision["crash_mult"]
             
-            # Simulate the stage with player's chosen multiplier
+            # Simulate the stage with player's chosen multiplier (applied per-stage)
             stage_result = simulator.simulate_stage(stage_idx, decision["performance_mult"])
             
             if stage_result:

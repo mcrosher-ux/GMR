@@ -1,6 +1,7 @@
 # gmr/world_logic.py
 import random
 from gmr.data import drivers, constructors
+from gmr.constants import clamp_chassis_aero
 
 
 DRIVER_FIRST_NAMES = [
@@ -805,17 +806,17 @@ def apply_ai_works_chassis_development(state, time):
         roll = random.random()
 
         # Same structure as player dev, but simplified
+        # All modifications use immediate clamping to prevent invalid intermediate values
         if roll < 0.15:
-            ch["aero"] = max(1, ch["aero"] - 1)
+            ch["aero"] = clamp_chassis_aero(ch["aero"] - 1)
             outcome = "suffer a development setback"
         elif roll < 0.70:
-            ch["aero"] += 1
+            ch["aero"] = clamp_chassis_aero(ch["aero"] + 1)
             outcome = "find modest gains"
         else:
-            ch["aero"] += 2
+            ch["aero"] = clamp_chassis_aero(ch["aero"] + 2)
             outcome = "unlock a major aerodynamic improvement"
 
-        ch["aero"] = max(1, min(ch["aero"], 12))
         ch["dev_runs_done"] += 1
 
         state.news.append(
