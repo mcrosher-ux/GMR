@@ -184,6 +184,11 @@ def update_fame_after_race(finishers, fame_mult=1.0, race_name=None, season_week
         track_cap = tracks.get(race_name, {}).get("fame_cap", None)
 
     for pos, (d, _) in enumerate(finishers):
+        # Prince Sagat's fame is fixed at 2 (royal celebrity status)
+        if d.get("name") == "Prince Sagat":
+            d["fame"] = 2.0
+            continue
+        
         old_fame = float(d.get("fame", 0.0))
 
         # If the event is capped and you're already "too known", it stops moving the needle
@@ -195,16 +200,16 @@ def update_fame_after_race(finishers, fame_mult=1.0, race_name=None, season_week
         # ------------------------------
         # Small in 1947–51 because scale=0.35:
         # base_finish_gain becomes ~0.02ish per race before softcap.
-        base_finish_gain = 0.06 * fame_mult  # tune: 0.04–0.08
+        base_finish_gain = 0.08 * fame_mult  # tune: 0.04–0.08
         gain = base_finish_gain
 
         # ------------------------------
         # Podium bonuses (still the main fame driver)
         # ------------------------------
         if pos == 0:
-            gain += 1.0 * fame_mult
+            gain += 1.2 * fame_mult
         elif pos in (1, 2):
-            gain += 0.6 * fame_mult
+            gain += 0.75 * fame_mult
 
         # Era dampener
         gain *= scale
@@ -1077,6 +1082,14 @@ def show_driver_market(state):
         
         if action != "hire":
             continue  # Back to market list
+
+        # --- Prince Sagat is unhirable (gentleman driver, races for himself) ---
+        if selected_driver.get("name") == "Prince Sagat" or selected_driver.get("gentleman_driver"):
+            print(f"\n{selected_driver['name']} politely declines your offer.")
+            print("As a gentleman driver, he races purely for the love of the sport")
+            print("and has no interest in driving for another team.")
+            input("\nPress Enter to return to the Driver Market...")
+            continue
 
         # --- Fame vs prestige gate: some drivers won't sign for small teams ---
         can_sign, required_prestige = can_team_sign_driver(state, selected_driver)
