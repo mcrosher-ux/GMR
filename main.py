@@ -21,7 +21,7 @@ from gmr.careers import (
     offseason_fame_decay,
     maybe_expand_enzoni_to_three_cars,
     maybe_refill_valdieri_drivers,
-
+    maybe_release_surviving_enzoni_driver,
 )
 from gmr.sponsorship import (
     maybe_offer_sponsor,
@@ -344,6 +344,11 @@ def run_game():
     global race_calendar
     global TEST_DRIVERS_ENABLED
     reset_driver_pool()
+    
+    # Reset track evolution for new game
+    from gmr.track_evolution import reset_track_evolution
+    reset_track_evolution()
+    
     init_driver_careers()
     time = GameTime()
     state = GameState()
@@ -429,6 +434,10 @@ def run_game():
             apply_offseason_ageing_and_retirement(state, time)
             offseason_fame_decay(time)
 
+            # Track evolution - safety upgrades, facility expansion, FIA grade changes
+            from gmr.track_evolution import run_offseason_track_evolution
+            run_offseason_track_evolution(state, time.year - 1)
+
             # Record championship standings BEFORE clearing
             from gmr.core_state import record_season_championship_standings
             record_season_championship_standings(state, time.year - 1)
@@ -445,6 +454,7 @@ def run_game():
             # Works-team offseason updates
             maybe_expand_enzoni_to_three_cars(state, time)
             maybe_refill_valdieri_drivers(state, time)
+            maybe_release_surviving_enzoni_driver(state, time)
 
             from gmr.world_logic import apply_ai_works_chassis_development
             apply_ai_works_chassis_development(state, time)
