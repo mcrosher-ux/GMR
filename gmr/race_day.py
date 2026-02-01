@@ -2,7 +2,7 @@
 
 import random
 
-from gmr.constants import MONTHS, WEATHER_WET_CHANCE
+from gmr.constants import MONTHS, WEATHER_WET_CHANCE, PRIZE_RULES, DEFAULT_PRIZE_TOP3
 from gmr.data import tracks
 from gmr.core_time import get_season_week
 from gmr.calendar import generate_calendar_for_year, get_clashes_for_year
@@ -265,6 +265,107 @@ def describe_style(pace_w, cons_w):
     if cons_w > pace_w:
         return "A tidy, controlled approach pays off"
     return "Well-balanced test of speed and discipline"
+
+
+def show_race_preview(state, time, race_name, track_profile):
+    """
+    Display race costs and potential earnings BEFORE the enter/skip decision.
+    Helps player make informed choice about racing this weekend.
+    """
+    print("\n=== Race Weekend Preview ===")
+    print(f"{race_name}")
+    print("----------------------------")
+    
+    country = track_profile.get("country", "Unknown")
+    team_country = getattr(state, "country", "UK")
+    
+    # --- COSTS ---
+    print("\n[ ESTIMATED COSTS ]")
+    
+    # Travel cost
+    travel_cost = calc_travel_cost(team_country, country, time.year)
+    if country == team_country:
+        print(f"  Travel (home event):    £{travel_cost}")
+    else:
+        print(f"  Travel to {country}:       £{travel_cost}")
+    
+    # Driver pay (if you have a driver)
+    driver_pay = 0
+    if state.player_driver and state.driver_pay > 0:
+        driver_pay = state.driver_pay
+        print(f"  Driver pay:             £{driver_pay}")
+    
+    # Special transport costs (nationality restrictions, transatlantic)
+    extra_costs = 0
+    allowed_nats = track_profile.get("allowed_nationalities")
+    if allowed_nats and state.player_driver:
+        player_nat = state.player_driver.get("country", "UK")
+        if player_nat not in allowed_nats:
+            extra_costs = 200
+            print(f"  Int'l transport fee:    £{extra_costs} (driver is {player_nat})")
+    
+    if race_name == "Union Speedway" and state.player_driver:
+        player_nat = state.player_driver.get("country", "UK")
+        if player_nat != "USA":
+            extra_costs = 500
+            print(f"  Transatlantic shipping: £{extra_costs}")
+    
+    total_cost = travel_cost + driver_pay + extra_costs
+    print(f"  --------------------------")
+    print(f"  TOTAL COST:             £{total_cost}")
+    
+    # --- POTENTIAL EARNINGS ---
+    print("\n[ POTENTIAL EARNINGS ]")
+    
+    # Prize money
+    rule = PRIZE_RULES.get(race_name)
+    if rule:
+        top3 = rule.get("top3", DEFAULT_PRIZE_TOP3)
+        finisher_bonus = rule.get("finisher_bonus", 0)
+    else:
+        top3 = DEFAULT_PRIZE_TOP3
+        finisher_bonus = 0
+    
+    print(f"  1st place:              £{top3[0]}")
+    print(f"  2nd place:              £{top3[1]}")
+    print(f"  3rd place:              £{top3[2]}")
+    if finisher_bonus > 0:
+        print(f"  Finisher bonus (4th+):  £{finisher_bonus}")
+    
+    # Sponsor bonuses if applicable
+    if hasattr(state, 'sponsor_name') and state.sponsor_name:
+        print(f"\n  Sponsor: {state.sponsor_name}")
+        if hasattr(state, 'sponsor_bonus_per_race') and state.sponsor_bonus_per_race > 0:
+            print(f"  Race start bonus:       £{state.sponsor_bonus_per_race}")
+    
+    # --- FINANCIAL CONTEXT ---
+    print("\n[ YOUR FINANCES ]")
+    print(f"  Current funds:          £{state.money}")
+    print(f"  Tyre sets available:    {getattr(state, 'tyre_sets', 0)}")
+    
+    # Warning if low on cash
+    if state.money < total_cost:
+        print(f"\n  ⚠ WARNING: You may not have enough to cover all costs!")
+    elif state.money < total_cost * 2:
+        print(f"\n  ⚠ Tight budget - a DNF could hurt your finances.")
+    
+    # --- TRACK QUICK INFO ---
+    print("\n[ TRACK INFO ]")
+    engine_danger = track_profile.get("engine_danger", 1.0)
+    crash_danger = track_profile.get("crash_danger", 1.0)
+    print(f"  Engine strain:          {describe_level(engine_danger, 'engine')}")
+    print(f"  Crash danger:           {describe_level(crash_danger, 'crash')}")
+    
+    # Weather tendency
+    wet_chance = track_profile.get("wet_chance", WEATHER_WET_CHANCE)
+    if wet_chance >= WEATHER_WET_CHANCE + 0.1:
+        print(f"  Weather:                Rain likely")
+    elif wet_chance <= WEATHER_WET_CHANCE - 0.1:
+        print(f"  Weather:                Usually dry")
+    else:
+        print(f"  Weather:                Changeable")
+    
+    print("")  # blank line before decision
 
 
 def show_race_briefing(state, time, race_name):
@@ -561,7 +662,10 @@ def handle_race_week(state, time):
     # --------------------------------------------
     # You DO have a car and a driver: give a choice
     # --------------------------------------------
-    print(f"\n{race_name} is scheduled for this week.")
+    # Show preview BEFORE the decision so player has all the info
+    show_race_preview(state, time, race_name, track_profile)
+    
+    print(f"{race_name} is scheduled for this week.")
     print("1. Enter the race weekend")
     print("2. Skip this race and watch from the paddock")
 

@@ -112,10 +112,14 @@ def show_engine_shop(state):
     state.engine_unit_id = getattr(state, "engine_unit_id", 0) + 1
     state.current_engine["unit_id"] = state.engine_unit_id
 
-    # Fresh unit resets
+    # Fresh unit resets - CRITICAL: new engine = fresh condition
+    old_wear = getattr(state, 'engine_wear', 0)
+    old_health = getattr(state, 'engine_health', 0)
     state.engine_wear = 100.0
     state.engine_max_condition = 100.0
     state.engine_health = 100.0
+    
+    print(f"\n  [Engine condition reset: {old_wear:.0f}% → 100% (fresh unit)]")
 
     # Recalculate overall car speed using engine + chassis
     if state.current_chassis:

@@ -533,19 +533,44 @@ def run_game():
         if season_week in race_calendar and season_week not in state.completed_races and state.pending_race_week != season_week:
             warnings = []
             if not state.current_engine:
-                warnings.append("NO ENGINE")
+                warnings.append("NO ENGINE INSTALLED")
             if not state.current_chassis:
-                warnings.append("NO CHASSIS")
+                warnings.append("NO CHASSIS INSTALLED")
             if not state.player_driver:
-                warnings.append("NO DRIVER")
+                warnings.append("NO DRIVER HIRED")
+            elif getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 0:
+                warnings.append("DRIVER INJURED")
             if getattr(state, 'tyre_sets', 0) <= 0:
-                warnings.append("NO TYRES")
+                warnings.append("NO TYRES AVAILABLE")
             
             if warnings:
-                print("\n" + "!" * 60)
+                race_name_warn = race_calendar[season_week]
+                print("")
+                print("!" * 50)
+                print(f"  RACE THIS WEEK: {race_name_warn}")
+                print("  YOU CANNOT RACE WITHOUT FIXING:")
                 for warning in warnings:
-                    print(f"\033[91m⚠️  WARNING: {warning} - Cannot race without this!\033[0m")
-                print("!" * 60)
+                    print(f"    >>> {warning} <<<")
+                print("!" * 50)
+        
+        # Also warn if race NEXT week and missing things (so player has time to fix)
+        next_week = season_week + 1
+        if next_week in race_calendar and season_week not in state.completed_races:
+            next_warnings = []
+            if not state.current_engine:
+                next_warnings.append("No engine")
+            if not state.current_chassis:
+                next_warnings.append("No chassis")
+            if not state.player_driver:
+                next_warnings.append("No driver")
+            elif getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 1:
+                next_warnings.append("Driver still injured")
+            if getattr(state, 'tyre_sets', 0) <= 1:
+                next_warnings.append("Low on tyres")
+            
+            if next_warnings:
+                next_race = race_calendar[next_week]
+                print(f"\n  [!] Race next week ({next_race}) - prepare: {', '.join(next_warnings)}")
 
         print("\n1. Calendar")
         print("2. Season Results")

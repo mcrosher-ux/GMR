@@ -380,6 +380,52 @@ class RaceSimulator:
                     stage_result["incidents"].append(random.choice(flavors))
                     stage_result["incidents"].append(f"   └─ Cause: {crash_factors[0]}")
                     stage_result["incidents"].append(f"⚠️ Chassis damage: -{chassis_damage:.0f}% | Engine damage: -{engine_damage:.0f}%")
+                    
+                    # INJURY SYSTEM - Check for driver injuries after crash
+                    injury_roll = random.random()
+                    crash_severity = self.track_profile.get("crash_danger", 1.0)
+                    
+                    # Higher crash danger tracks = more likely serious injury
+                    fatal_threshold = 0.02 * crash_severity  # ~2-3% base for fatal
+                    serious_threshold = fatal_threshold + 0.08 * crash_severity  # ~10% for serious
+                    minor_threshold = serious_threshold + 0.25  # ~35% for minor
+                    
+                    if injury_roll < fatal_threshold:
+                        # Career-ending / fatal injury
+                        self.game_state.player_driver_injury_severity = 3
+                        self.game_state.player_driver_injury_weeks_remaining = 0
+                        self.game_state.player_driver_injured = False
+                        stage_result["incidents"].append(f"")
+                        stage_result["incidents"].append(f"☠️  TRAGIC NEWS: {player_name} has been killed in the accident.")
+                        stage_result["incidents"].append(f"   The motorsport world mourns a terrible loss.")
+                        self.game_state.news.append(f"TRAGEDY: {player_name} has been killed in a racing accident at {self.track_profile.get('name', 'the circuit')}.")
+                        # Mark for removal
+                        self.game_state.demo_player_died = True
+                    elif injury_roll < serious_threshold:
+                        # Serious injury (2-6 weeks)
+                        weeks_out = random.randint(2, 6)
+                        self.game_state.player_driver_injury_severity = 2
+                        self.game_state.player_driver_injury_weeks_remaining = weeks_out
+                        self.game_state.player_driver_injured = True
+                        stage_result["incidents"].append(f"")
+                        stage_result["incidents"].append(f"🏥 SERIOUS INJURY: {player_name} is rushed to hospital.")
+                        stage_result["incidents"].append(f"   Expected recovery time: {weeks_out} weeks.")
+                        self.game_state.news.append(f"BAD NEWS: {player_name} has suffered a serious injury and will be out for {weeks_out} weeks.")
+                    elif injury_roll < minor_threshold:
+                        # Minor injury (1-2 weeks)
+                        weeks_out = random.randint(1, 2)
+                        self.game_state.player_driver_injury_severity = 1
+                        self.game_state.player_driver_injury_weeks_remaining = weeks_out
+                        self.game_state.player_driver_injured = True
+                        stage_result["incidents"].append(f"")
+                        stage_result["incidents"].append(f"🩹 {player_name} walks away with minor injuries.")
+                        stage_result["incidents"].append(f"   Expected recovery time: {weeks_out} week{'s' if weeks_out > 1 else ''}.")
+                        self.game_state.news.append(f"{player_name} suffered minor injuries in the crash and will need {weeks_out} week{'s' if weeks_out > 1 else ''} to recover.")
+                    else:
+                        # Walked away unscathed
+                        stage_result["incidents"].append(f"")
+                        stage_result["incidents"].append(f"✓ {player_name} climbs out of the wreckage shaken but uninjured.")
+                    
                 stage_result["player_dnf"] = player_incident
         
         # Calculate new performance for each remaining driver
@@ -677,37 +723,68 @@ def run_interactive_race_stages(simulator, state, race_name, is_wet, is_hot):
         "crash_mult": 1.0,
     }
     
+    player_out = False
+    
     for stage_idx in range(len(STAGE_LABELS)):
-        # Get player decision BEFORE simulating this stage
-        decision = get_player_stage_decision(stage_idx, is_wet, is_hot)
-        
-        print(f"\n  → Strategy set to: {decision['label']}")
-        
-        # Apply decision to cumulative mods
-        cumulative_mods["performance_mult"] *= decision["performance_mult"]
-        cumulative_mods["engine_fail_mult"] *= decision["engine_fail_mult"]
-        cumulative_mods["crash_mult"] *= decision["crash_mult"]
-        
-        # Update simulator's risk multipliers for this stage
-        simulator.player_engine_mult = decision["engine_fail_mult"]
-        simulator.player_crash_mult = decision["crash_mult"]
-        
-        # Simulate the stage with player's chosen multiplier
-        stage_result = simulator.simulate_stage(stage_idx, decision["performance_mult"])
-        
-        if stage_result:
-            # Display what happened
-            display_stage_results(state, race_name, stage_result, simulator)
+        if not player_out:
+            # Get player decision BEFORE simulating this stage
+            decision = get_player_stage_decision(stage_idx, is_wet, is_hot)
             
-            # Check if player DNF'd
-            if stage_result.get("player_dnf"):
-                print(f"\n  💀 YOUR RACE IS OVER!")
-                input("\n  Press Enter to continue...")
-                break
-        
-        # Pause between stages (except after last)
-        if stage_idx < len(STAGE_LABELS) - 1:
-            input("\n  Press Enter to continue to next stage...")
+            print(f"\n  → Strategy set to: {decision['label']}")
+            
+            # Apply decision to cumulative mods
+            cumulative_mods["performance_mult"] *= decision["performance_mult"]
+            cumulative_mods["engine_fail_mult"] *= decision["engine_fail_mult"]
+            cumulative_mods["crash_mult"] *= decision["crash_mult"]
+            
+            # Update simulator's risk multipliers for this stage
+            simulator.player_engine_mult = decision["engine_fail_mult"]
+            simulator.player_crash_mult = decision["crash_mult"]
+            
+            # Simulate the stage with player's chosen multiplier
+            stage_result = simulator.simulate_stage(stage_idx, decision["performance_mult"])
+            
+            if stage_result:
+                # Display what happened
+                display_stage_results(state, race_name, stage_result, simulator)
+                
+                # Check if player DNF'd
+                if stage_result.get("player_dnf"):
+                    print(f"\n  💀 YOUR RACE IS OVER!")
+                    player_out = True
+                    print(f"\n  The race continues without you...")
+                    input("\n  Press Enter to see remaining stages...")
+            
+            # Pause between stages (except after last) if player still in
+            if not player_out and stage_idx < len(STAGE_LABELS) - 1:
+                input("\n  Press Enter to continue to next stage...")
+        else:
+            # Player is out - simulate remaining stages automatically
+            stage_result = simulator.simulate_stage(stage_idx, player_strategy_mult=1.0)
+            
+            if stage_result:
+                # Show abbreviated results for remaining stages
+                stage_label = STAGE_LABELS[stage_idx]
+                print(f"\n{'─'*60}")
+                print(f"  {stage_label} (watching from the paddock)")
+                print(f"{'─'*60}")
+                
+                # Show any incidents
+                if stage_result.get("incidents"):
+                    print("\n  Race incidents:")
+                    for incident in stage_result["incidents"]:
+                        if incident.strip():  # Skip empty lines
+                            print(f"    {incident}")
+                
+                # Show current top positions
+                standings = simulator.get_current_standings()
+                print(f"\n  Current top 5:")
+                for pos, d, gap in standings[:5]:
+                    name = d.get("name")
+                    constructor = d.get("constructor", "")
+                    print(f"    P{pos}. {name} ({constructor}) {gap}")
+    
+    return cumulative_mods
     
     return cumulative_mods
 
@@ -2179,6 +2256,82 @@ def add_crash_explanation(state, d, track_profile, is_hot, is_wet, perspective="
         )
 
 
+def print_full_classification(race_name, finishers, retired, is_wet, is_hot, show_prompt=True):
+    """
+    Print the full race classification to console.
+    Used for AI-only races and races where the player DNF'd.
+    
+    finishers: list of (driver_dict, performance)
+    retired: list of (driver_dict, reason)
+    """
+    print(f"\n{'='*60}")
+    print(f"  {race_name} — FINAL CLASSIFICATION")
+    
+    # Weather conditions
+    conditions = []
+    if is_wet:
+        conditions.append("Wet")
+    if is_hot:
+        conditions.append("Hot")
+    if conditions:
+        print(f"  Conditions: {', '.join(conditions)}")
+    print(f"{'='*60}")
+    
+    if not finishers:
+        print("\n  No cars reached the finish!")
+    else:
+        print("\n  CLASSIFIED FINISHERS:")
+        print("  " + "-"*56)
+        
+        for pos, (d, _perf) in enumerate(finishers):
+            place = pos + 1
+            name = d.get("name", "Unknown")
+            constructor = d.get("constructor", "Independent")
+            
+            # Points (if championship active)
+            pts = POINTS_TABLE[pos] if CHAMPIONSHIP_ACTIVE and pos < len(POINTS_TABLE) else 0
+            
+            # Prize money
+            prize = get_prize_for_race_and_pos(race_name, pos)
+            
+            # Format position with padding
+            pos_str = f"{place:>2}."
+            
+            # Build the line
+            if pts > 0 and prize > 0:
+                line = f"  {pos_str} {name:<20} ({constructor:<15}) {pts:>2} pts  £{prize}"
+            elif pts > 0:
+                line = f"  {pos_str} {name:<20} ({constructor:<15}) {pts:>2} pts"
+            elif prize > 0:
+                line = f"  {pos_str} {name:<20} ({constructor:<15})         £{prize}"
+            else:
+                line = f"  {pos_str} {name:<20} ({constructor:<15})"
+            
+            print(line)
+    
+    # Show retirements
+    if retired:
+        print("\n  DID NOT FINISH:")
+        print("  " + "-"*56)
+        for d, reason in retired:
+            name = d.get("name", "Unknown")
+            constructor = d.get("constructor", "Independent")
+            
+            if reason == "engine":
+                reason_text = "Engine failure"
+            elif reason == "crash":
+                reason_text = "Crashed out"
+            else:
+                reason_text = "Retired"
+            
+            print(f"  DNF {name:<20} ({constructor:<15}) - {reason_text}")
+    
+    print(f"\n{'='*60}")
+    
+    if show_prompt:
+        input("\nPress Enter to continue...")
+
+
 def run_ai_only_race(state, race_name, time, season_week, track_profile):
     """
     AI-only race simulation for weeks where the player does not/cannot compete.
@@ -2339,30 +2492,30 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
             state.news.append(f"{d['name']} ({d['constructor']}) crashed out of the race.")
             add_crash_explanation(state, d, track_profile, is_hot, is_wet, perspective="neutral")
 
-            # Check for injuries (player driver only)
-            if state.player_driver and d['name'] == state.player_driver['name']:
-                injury_roll = random.random()
-                if injury_roll < 0.05:  # 5% chance of career-ending injury
-                    state.player_driver_injury_severity = 3
-                    state.player_driver_injury_weeks_remaining = 0  # Immediate retirement
-                    state.news.append(f"TERRIBLE NEWS: {d['name']} has suffered a career-ending injury in the crash!")
-                    state.news.append(f"{d['name']} will never race again. Your team must find a new driver.")
-                    # Clear player driver
-                    state.player_driver = None
-                elif injury_roll < 0.20:  # 15% chance of serious injury (2-6 weeks)
-                    state.player_driver_injury_severity = 2
-                    weeks_out = random.randint(2, 6)
-                    state.player_driver_injury_weeks_remaining = weeks_out
-                    state.news.append(f"BAD NEWS: {d['name']} has suffered a serious injury in the crash!")
-                    state.news.append(f"{d['name']} will be unable to drive for {weeks_out} weeks.")
-                else:  # 80% chance of minor injury (1-2 weeks)
-                    state.player_driver_injury_severity = 1
-                    weeks_out = random.randint(1, 2)
-                    state.player_driver_injury_weeks_remaining = weeks_out
-                    state.news.append(f"{d['name']} has suffered a minor injury in the crash.")
-                    state.news.append(f"{d['name']} will be unable to drive for {weeks_out} week{'s' if weeks_out > 1 else ''}.")
-
-                state.player_driver_injured = state.player_driver_injury_weeks_remaining > 0
+            # AI driver death chance (rare, era-dependent)
+            # Early eras (pre-1970) are more dangerous
+            death_chance = 0.005  # 0.5% base
+            if time.year < 1960:
+                death_chance = 0.02  # 2% in the dangerous early years
+            elif time.year < 1970:
+                death_chance = 0.01  # 1% in the 60s
+            elif time.year < 1985:
+                death_chance = 0.005  # 0.5% in the 70s-early 80s
+            else:
+                death_chance = 0.001  # 0.1% modern era
+            
+            # Higher crash danger tracks = more deadly
+            death_chance *= track_profile.get("crash_danger", 1.0)
+            
+            if random.random() < death_chance:
+                # AI driver killed
+                state.news.append(f"TRAGEDY: {d['name']} has been killed in the crash at {race_name}.")
+                state.news.append(f"The motorsport world mourns the loss of {d['name']}.")
+                
+                # Remove from global driver pool
+                from gmr.data import drivers as global_drivers
+                if d in global_drivers:
+                    global_drivers.remove(d)
 
             continue
 
@@ -2458,6 +2611,9 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
         ])
     if weather_descriptions:
         state.news.append(random.choice(weather_descriptions))
+
+    # Show full classification to player
+    print_full_classification(race_name, finishers, retired, is_wet, is_hot, show_prompt=True)
 
     record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired)
 
@@ -2767,10 +2923,8 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
     # How swingy race performance is (qualifying is higher)
     variance_scale = 0.25
 
-    if state.player_driver:
-        eid = state.current_engine.get("unit_id") if state.current_engine else None
-        state.news.append(
-            f"DEBUG ENGINE: unit_id={eid}, wear={state.engine_wear:.0f}%, health={state.engine_health:.0f}%")
+    # Debug info for engine tracking (only shown if DEBUG_ENGINE is enabled)
+    # Removed from news to avoid confusion - check garage menu for current condition
 
     # PATCH : remember if we've ever completed Vallone GP
     if race_name == "Vallone GP":
@@ -2932,29 +3086,50 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         print(f"  RACE COMPLETE — FINAL CLASSIFICATION")
         print(f"{'='*60}")
         
-        # Print classified finishers
+        # Print classified finishers with points and prizes
         print("\n🏁  FINISHERS:")
+        print("    " + "-"*52)
         player_name = state.player_driver.get("name") if state.player_driver else None
         for pos, (d, perf) in enumerate(finishers, start=1):
             name = d.get("name")
             constructor = d.get("constructor", "")
+            
+            # Get points and prize
+            pts = POINTS_TABLE[pos-1] if CHAMPIONSHIP_ACTIVE and (pos-1) < len(POINTS_TABLE) else 0
+            prize = get_prize_for_race_and_pos(race_name, pos-1)
+            
+            # Build info string
+            info_parts = []
+            if pts > 0:
+                info_parts.append(f"{pts} pts")
+            if prize > 0:
+                info_parts.append(f"£{prize}")
+            info_str = " | ".join(info_parts) if info_parts else ""
+            
             if name == player_name:
-                print(f"    \x1b[32mP{pos}. {name} ({constructor})\x1b[0m")
+                if info_str:
+                    print(f"    \x1b[32mP{pos}. {name:<18} ({constructor:<12}) {info_str}\x1b[0m")
+                else:
+                    print(f"    \x1b[32mP{pos}. {name:<18} ({constructor})\x1b[0m")
             else:
-                print(f"    P{pos}. {name} ({constructor})")
+                if info_str:
+                    print(f"    P{pos}. {name:<18} ({constructor:<12}) {info_str}")
+                else:
+                    print(f"    P{pos}. {name:<18} ({constructor})")
         
         # Print retirements
         if dnf_drivers:
             print("\n❌  RETIREMENTS:")
+            print("    " + "-"*52)
             for d in dnf_drivers:
                 name = d.get("name")
                 constructor = d.get("constructor", "")
                 reason = retire_reasons.get(name, "unknown")
-                reason_label = "Engine" if reason == "engine" else "Crash" if reason == "crash" else "DNF"
+                reason_label = "Engine failure" if reason == "engine" else "Crashed out" if reason == "crash" else "DNF"
                 if name == player_name:
-                    print(f"    \x1b[31mDNF. {name} ({constructor}) — {reason_label}\x1b[0m")
+                    print(f"    \x1b[31mDNF. {name:<18} ({constructor:<12}) — {reason_label}\x1b[0m")
                 else:
-                    print(f"    DNF. {name} ({constructor}) — {reason_label}")
+                    print(f"    DNF. {name:<18} ({constructor:<12}) — {reason_label}")
         
         input("\n  Press Enter to continue...")
         
