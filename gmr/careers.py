@@ -1415,7 +1415,7 @@ def show_driver_market(state):
         print(f"They will now race for {state.player_constructor}.")
 
         # Check if any AI teams need to refill after losing this driver
-        maybe_refill_ai_teams(state, time)
+        maybe_refill_ai_teams(state, None)
 
         input("\nPress Enter to return to the main menu...")
         return
