@@ -5,23 +5,59 @@ from gmr.constants import clamp_chassis_aero
 
 
 DRIVER_FIRST_NAMES = [
-    "Carlo", "Alberto", "Emmanuel", "George", "Hans", "Luis",
-    "Marco", "Antonio", "Paolo", "Giancarlo", "Franco", "Sergio",
-    "Jean", "Pierre", "Henri", "Jacques", "Michel", "Claude",
-    "Wolfgang", "Helmut", "Klaus", "Dieter", "Rolf", "Horst",
-    "Mario", "Giuseppe", "Vittorio", "Enrico", "Umberto",
-    "Pedro", "Miguel", "Diego", "Juan", "Carlos", "Fernando",
-    "Dennis", "Peter", "Colin", "John", "Graham", "Ian",
+    # Italian
+    "Carlo", "Alberto", "Marco", "Antonio", "Paolo", "Giancarlo",
+    "Franco", "Sergio", "Mario", "Giuseppe", "Vittorio", "Enrico",
+    "Umberto", "Luigi", "Gino", "Bruno", "Renato", "Piero", "Aldo",
+    # French
+    "Emmanuel", "Jean", "Pierre", "Henri", "Jacques", "Michel",
+    "Claude", "Lucien", "Marcel", "Émile", "Roger", "Louis",
+    "Georges", "André", "Armand", "Yves", "Alain", "Raymond",
+    # Germanic
+    "Hans", "Wolfgang", "Helmut", "Klaus", "Dieter", "Rolf",
+    "Horst", "Karl", "Ernst", "Wilhelm", "Otto", "Friedrich",
+    "Rudolf", "Heinz", "Kurt", "Franz", "Manfred", "Gerhard",
+    # British
+    "George", "Dennis", "Peter", "Colin", "John", "Graham",
+    "Ian", "Jack", "Arthur", "Edward", "Henry", "Ronald",
+    "Stanley", "Frederick", "Albert", "Norman", "Nigel", "Mike",
+    # Spanish/Portuguese
+    "Pedro", "Miguel", "Diego", "Luis", "Manuel", "Rafael",
+    "Ángel", "Andrés", "Javier", "Pablo", "Tomás", "Vicente",
+    # Brazilian
+    "João", "Paulo", "Rubens", "Chico", "Sérgio", "Wilson",
+    "Nelson", "Emerson", "Roberto", "Maurício", "Raul", "Clovis",
+    # Argentinian
+    "Juan", "Carlos", "Fernando", "Héctor", "Raúl", "Oscar",
+    "José", "Froilán", "Onofre", "Clemar", "Norberto", "Benedicto",
 ]
 
 DRIVER_LAST_NAMES = [
-    "Bianci", "Rossi", "Dubois", "McCallister", "Keller", "Navarro",
-    "Ferrari", "Bianchi", "Ricci", "Rossi", "Verdi", "Neri",
-    "Dupont", "Bernard", "Martin", "Laurent", "Leclerc", "Arnoux",
-    "Mueller", "Schmidt", "Weber", "Hoffmann", "Fischer", "Richter",
-    "Esposito", "Gallo", "Colombo", "Romano",
-    "Garcia", "Lopez", "Martinez", "Ramirez", "Fernandez",
-    "Hill", "Watson", "Senna", "Villeneuve", "Hunt", "Stewart",
+    # Italian
+    "Bianci", "Rossi", "Ferrari", "Bianchi", "Ricci", "Verdi",
+    "Neri", "Esposito", "Gallo", "Colombo", "Romano", "Conti",
+    "De Luca", "Moretti", "Marini", "Serafini", "Barbieri", "Valenti",
+    # French
+    "Dubois", "Dupont", "Bernard", "Martin", "Laurent", "Leclerc",
+    "Arnoux", "Morel", "Lefèvre", "Lambert", "Renaud", "Girard",
+    "Faure", "Perrin", "Marchand", "Chevalier", "Delattre", "Beaumont",
+    # Germanic
+    "Keller", "Mueller", "Schmidt", "Weber", "Hoffmann", "Fischer",
+    "Richter", "Schneider", "Weiss", "Bauer", "Klein", "Vogel",
+    "Hartmann", "Neumann", "Hoffner", "Brandt", "Steiner", "Lorenz",
+    # British
+    "McCallister", "Hill", "Watson", "Whitmore", "Crawford", "Hawkins",
+    "Turner", "Collins", "Bennett", "Walker", "Thompson", "Mitchell",
+    "Baker", "Ellis", "Harrison", "Caldwell", "Broome", "Pemberton",
+    # Spanish/Portuguese
+    "Navarro", "Garcia", "Lopez", "Martinez", "Ramirez", "Fernandez",
+    "Morales", "Serrano", "Domínguez", "Carrasco", "Iglesias", "Velasco",
+    # Brazilian
+    "Figueiredo", "Mendonça", "Almeida", "Ribeiro", "Silveira", "Cardoso",
+    "Teixeira", "Ferreira", "Machado", "Bueno", "Leme", "Guimarães",
+    # Argentinian
+    "Ortega", "Ramos", "Sánchez", "Vidal", "González", "Gálvez",
+    "Quiroga", "Acosta", "Perdomo", "Bordeu", "Leguizamón", "Medina",
 ]
 
 ENZONI = "Enzoni"
@@ -250,24 +286,48 @@ def driver_enters_event(driver, race_name, track_profile, state=None, time=None)
 def can_team_sign_driver(state, driver):
     """
     Check whether your team has enough prestige to realistically
-    sign this driver based on their fame.
+    sign this driver based on their fame AND their current team's prestige.
 
-    For now:
-      - Fame 0–1  -> basically anyone will talk to you
-      - Fame 2    -> want prestige ~5+
-      - Fame 3    -> want prestige ~7.5+
-      - Fame 4    -> want prestige ~10+
-      - etc.
+    Two checks:
+    1. Fame gate: driver fame * 2.5 <= your prestige
+       - Fame 0–1  -> basically anyone will talk to you
+       - Fame 2    -> want prestige ~5+
+       - Fame 3    -> want prestige ~7.5+
+       - Fame 4    -> want prestige ~10+
 
-    Returns (can_sign: bool, required_prestige: float)
+    2. Team prestige gate: if driver is at a bigger team, you need to
+       significantly out-prestige them to poach (prestige gap of 3+).
+       Drivers at smaller teams or Independents can be signed if you pass fame check.
+
+    Returns (can_sign: bool, required_prestige: float, rejection_reason: str or None)
     """
+    from gmr.data import constructors
+    
     fame = driver.get("fame", 0)
     prestige = getattr(state, "prestige", 0.0)
 
-    # Updated formula: prestige must be at least fame * 2.5
+    # 1. Fame-based requirement
     required_prestige = float(fame) * 2.5
-
-    return prestige >= required_prestige, required_prestige
+    
+    if prestige < required_prestige:
+        return False, required_prestige, "fame"
+    
+    # 2. Team prestige gate - can't easily poach from bigger/equal teams
+    current_team = driver.get("constructor", "Independent")
+    team_data = constructors.get(current_team, {})
+    team_prestige = team_data.get("prestige", 0.0)
+    
+    # If driver is at a real team (not Independent), check team prestige
+    if current_team not in ("Independent", "Test") and not driver.get("hirable"):
+        # Need to be significantly more prestigious to poach (gap of 3+)
+        # This prevents small teams from easily poaching big team drivers
+        prestige_gap_needed = 3.0
+        
+        if prestige < team_prestige + prestige_gap_needed:
+            # You're not prestigious enough to lure them away
+            return False, team_prestige + prestige_gap_needed, "team"
+    
+    return True, required_prestige, None
 
 
 def get_regen_age_for_year(year: int) -> int:

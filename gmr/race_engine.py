@@ -1955,7 +1955,7 @@ def get_ai_car_stats(constructor_name):
     return 5, 5
 
 
-def build_event_grid(state, time, race_name, track_profile):
+def build_event_grid(state, time, race_name, track_profile, excluded_drivers=None):
     """
     Returns a list of drivers who will take part in THIS event,
     respecting per-team car limits.
@@ -1963,7 +1963,14 @@ def build_event_grid(state, time, race_name, track_profile):
     IMPORTANT:
     - "Independent" is NOT a real team; it's the open-entry pool.
       So it should NOT be capped to 2 cars.
+    
+    Parameters:
+    - excluded_drivers: Optional set of driver names who are already committed
+      to another race this week (for clash handling). These drivers cannot
+      physically be on opposite sides of the earth on the same day.
     """
+    if excluded_drivers is None:
+        excluded_drivers = set()
 
     # Optional: let tracks define grid size (fallback to something sane)
     grid_size = track_profile.get("grid_size", 12)
@@ -1981,6 +1988,10 @@ def build_event_grid(state, time, race_name, track_profile):
     # Collect eligible drivers by "team"/pool
     by_team = {}
     for d in drivers:
+        # Skip drivers already committed to another race this week (clash handling)
+        if d.get("name") in excluded_drivers:
+            continue
+        
         if not driver_enters_event(d, race_name, track_profile, state, time):
             continue
 
@@ -2344,7 +2355,7 @@ def print_full_classification(race_name, finishers, retired, is_wet, is_hot, sho
         input("\nPress Enter to continue...")
 
 
-def run_ai_only_race(state, race_name, time, season_week, track_profile):
+def run_ai_only_race(state, race_name, time, season_week, track_profile, excluded_drivers=None):
     """
     AI-only race simulation for weeks where the player does not/cannot compete.
 
@@ -2352,7 +2363,15 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
     - This version includes engine failures + crashes (DNFs), using the same core logic
       style as run_race(), but without player wear/damage effects.
     - Fame/XP update is applied to FINISHERS only (DNFs don't gain post-race fame).
+    
+    Parameters:
+    - excluded_drivers: Optional set of driver names already racing elsewhere this week.
+    
+    Returns:
+    - Set of driver names who participated in this race (for clash exclusion).
     """
+    if excluded_drivers is None:
+        excluded_drivers = set()
 
     # Roll conditions for flavour + crash modifiers
     is_wet, is_hot = roll_race_weather(track_profile)
@@ -2370,9 +2389,12 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
     reliability_mult = get_reliability_mult(time)
     crash_mult = get_crash_mult(time)
 
-    event_grid = build_event_grid(state, time, race_name, track_profile)
+    event_grid = build_event_grid(state, time, race_name, track_profile, excluded_drivers)
     grid_size = len(event_grid)
     grid_risk_mult = 1.0 + max(0, grid_size - 12) * 0.01  # +1% per car above 12
+    
+    # Track who raced here (for returning to caller for clash handling)
+    drivers_in_race = {d.get("name") for d in event_grid}
 
     for d in event_grid:
         # Player shouldn't appear in AI-only race
@@ -2517,12 +2539,20 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
                 death_chance = 0.001  # 0.1% modern era
             
             # Higher crash danger tracks = more deadly
-            death_chance *= track_profile.get("crash_danger", 1.0)
+            # Also factor in track safety rating (higher = safer)
+            from gmr.track_evolution import get_track_rating
+            safety_rating = get_track_rating(race_name, "safety")
+            safety_factor = max(0.3, 1.0 - (safety_rating * 0.08))  # 8% reduction per safety point
+            death_chance *= track_profile.get("crash_danger", 1.0) * safety_factor
             
             if random.random() < death_chance:
                 # AI driver killed
                 state.news.append(f"TRAGEDY: {d['name']} has been killed in the crash at {race_name}.")
                 state.news.append(f"The motorsport world mourns the loss of {d['name']}.")
+                
+                # Track may upgrade safety after fatality
+                from gmr.track_evolution import maybe_track_upgrades_after_fatality
+                maybe_track_upgrades_after_fatality(state, race_name, time.year)
                 
                 # Remove from global driver pool
                 from gmr.data import drivers as global_drivers
@@ -2538,7 +2568,7 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
         state.news.append(f"{race_name}: chaotic scenes — no cars reach the finish.")
         record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired)
         state.completed_races.add(season_week)
-        return
+        return drivers_in_race
 
     # Sort finishers fastest to slowest
     finishers.sort(key=lambda x: x[1], reverse=True)
@@ -2628,6 +2658,9 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile):
     print_full_classification(race_name, finishers, retired, is_wet, is_hot, show_prompt=True)
 
     record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired)
+    
+    # Return the set of drivers who participated (for clash exclusion)
+    return drivers_in_race
 
 
 def get_qualifying_strategy_choice(state, track_profile, is_wet_quali):
@@ -2925,6 +2958,9 @@ def simulate_qualifying(state, race_name, time, track_profile):
 
     # Store quali results in state for overtake calculation
     state.last_quali_results = results
+    
+    # Store driver names in this race for clash exclusion
+    state.last_race_drivers = {d.get("name") for d, _ in results}
 
     return results, grid_bonus, is_wet_quali
 

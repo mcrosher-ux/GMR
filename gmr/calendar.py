@@ -5,14 +5,38 @@ from gmr.constants import MONTHS
 
 import random
 
-# Track tiers for clash rules
-# Big races: Cannot clash with anything
-# Medium races: Can clash with small races only  
-# Small races: Can clash with other small races
+# Track tiers for clash rules and championship eligibility
+# Grade A: World Championship caliber - cannot clash with anything
+# Grade B: International - can clash with small races only  
+# Grade C/D: Regional/Club - can clash with other small races
 
-BIG_RACES = ["Vallone GP", "Ardennes Endurance GP", "Autódromo General San Martín", "Union Speedway"]
-MEDIUM_RACES = ["Marblethorpe GP", "Château-des-Prés GP", "Rougemont GP", "Copper State Circuit"]
-SMALL_RACES = ["Bradley Fields", "Little Autodromo", "Circuito da Estrada Velha"]
+# Big races that anchor the calendar (always Grade A)
+BIG_RACES = [
+    "Vallone GP", 
+    "Ardennes Endurance GP", 
+    "Autódromo General San Martín", 
+    "Union Speedway",
+    "Schwarzwald Ring",
+]
+
+# Medium races (Grade B international events)
+MEDIUM_RACES = [
+    "Marblethorpe GP", 
+    "Château-des-Prés GP", 
+    "Rougemont GP", 
+    "Copper State Circuit",
+    "Circuito de las Palmas",
+    "Kingsport Coastal Circuit",
+    "Circuit de Sable d'Or",
+    "Fuji Kogen Circuit",
+]
+
+# Small races (Grade C/D club circuits)
+SMALL_RACES = [
+    "Bradley Fields", 
+    "Little Autodromo", 
+    "Circuito da Estrada Velha",
+]
 
 
 def get_race_tier(race_name):
@@ -29,8 +53,13 @@ def generate_calendar_for_year(year):
     """
     Build the season calendar for a given year.
 
-    1947: European season only
-    1948+: Americas circuits added
+    Track availability by year:
+    - 1947: European season only (UK, France, Italy, Switzerland, Belgium)
+    - 1948: Americas circuits added (Argentina, Brazil, USA regional)
+    - 1949: Germany (Nürburgring) joins
+    - 1950: USA (Union Speedway), Spain (Pedralbes) join
+    - 1951: South Africa (East London) joins  
+    - 1952: Morocco (Aïn-Diab), Japan (Suzuka) join
     
     Clash rules:
     - Big races: Never clash
@@ -49,13 +78,19 @@ def generate_calendar_for_year(year):
     cal = {}
     clashes = {}  # week -> [race1, race2]
 
-    # ---- Anchors (fixed) ----
+    # ---- Anchors (fixed major events) ----
     cal[20] = "Vallone GP"              # sponsor trigger week
     cal[40] = "Ardennes Endurance GP"   # season finale
 
     # Union Speedway from 1950
     if year >= 1950:
         cal[25] = "Union Speedway"
+    
+    # Nürburgring equivalent from 1949 - mid-season epic
+    if year >= 1949:
+        schwarzwald_pool = [w for w in range(22, 28) if w not in cal]
+        if schwarzwald_pool:
+            cal[rng.choice(schwarzwald_pool)] = "Schwarzwald Ring"
 
     # Autódromo General San Martín from 1948 (Southern hemisphere = early year)
     if year >= 1948:
@@ -63,17 +98,42 @@ def generate_calendar_for_year(year):
         if buenos_aires_pool:
             cal[rng.choice(buenos_aires_pool)] = "Autódromo General San Martín"
 
-    # Second Vallone in late summer
+    # Second Vallone in late summer (Italian GP tradition)
     vallone2_pool = [w for w in range(29, 37) if w not in cal]
     if vallone2_pool:
         cal[rng.choice(vallone2_pool)] = "Vallone GP"
+    
+    # Spanish GP from 1950
+    if year >= 1950:
+        spain_pool = [w for w in range(16, 22) if w not in cal]
+        if spain_pool:
+            cal[rng.choice(spain_pool)] = "Circuito de las Palmas"
+    
+    # South African GP from 1951 (early year due to Southern hemisphere)
+    if year >= 1951:
+        south_africa_pool = [w for w in range(9, 14) if w not in cal]
+        if south_africa_pool:
+            cal[rng.choice(south_africa_pool)] = "Kingsport Coastal Circuit"
+    
+    # Moroccan GP from 1952
+    if year >= 1952:
+        morocco_pool = [w for w in range(36, 40) if w not in cal]
+        if morocco_pool:
+            cal[rng.choice(morocco_pool)] = "Circuit de Sable d'Or"
+    
+    # Japanese GP from 1952 (autumn race)
+    if year >= 1952:
+        japan_pool = [w for w in range(32, 38) if w not in cal]
+        if japan_pool:
+            cal[rng.choice(japan_pool)] = "Fuji Kogen Circuit"
 
-    # ---- Fillers ----
+    # ---- Fillers (club and regional races) ----
     fillers = [
         "Bradley Fields", "Bradley Fields", "Bradley Fields",
         "Little Autodromo", "Little Autodromo", "Little Autodromo",
         "Marblethorpe GP",
         "Château-des-Prés GP",
+        "Rougemont GP",
     ]
     
     # Add Americas races from 1948

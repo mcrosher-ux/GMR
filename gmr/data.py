@@ -218,6 +218,75 @@ drivers = [
         "age": 42,
         "country": "Spain",
     },
+
+    # Brazilian drivers
+    {
+        "name": "João Figueiredo", "constructor": "Independent",
+        "pace": 6, "consistency": 5,
+        "aggression": 7, "mechanical_sympathy": 5, "wet_skill": 6,
+        "fame": 1,
+        "age": 29,
+        "country": "Brazil",
+    },
+    {
+        "name": "Carlos Mendonça", "constructor": "Independent",
+        "pace": 5, "consistency": 6,
+        "aggression": 5, "mechanical_sympathy": 6, "wet_skill": 5,
+        "fame": 0,
+        "age": 34,
+        "country": "Brazil",
+    },
+    {
+        "name": "Rubens Almeida", "constructor": "Independent",
+        "pace": 7, "consistency": 4,
+        "aggression": 8, "mechanical_sympathy": 4, "wet_skill": 4,
+        "fame": 2,
+        "age": 27,
+        "country": "Brazil",
+    },
+    {
+        "name": "Paulo Ribeiro", "constructor": "Independent",
+        "pace": 4, "consistency": 7,
+        "aggression": 4, "mechanical_sympathy": 7, "wet_skill": 6,
+        "fame": 0,
+        "age": 38,
+        "country": "Brazil",
+    },
+
+    # Argentinian drivers
+    {
+        "name": "Juan Manuel Ortega", "constructor": "Independent",
+        "pace": 7, "consistency": 6,
+        "aggression": 6, "mechanical_sympathy": 6, "wet_skill": 5,
+        "fame": 2,
+        "age": 31,
+        "country": "Argentina",
+    },
+    {
+        "name": "Héctor Ramos", "constructor": "Independent",
+        "pace": 5, "consistency": 5,
+        "aggression": 6, "mechanical_sympathy": 5, "wet_skill": 4,
+        "fame": 1,
+        "age": 33,
+        "country": "Argentina",
+    },
+    {
+        "name": "Raúl Fernández", "constructor": "Independent",
+        "pace": 6, "consistency": 5,
+        "aggression": 7, "mechanical_sympathy": 4, "wet_skill": 5,
+        "fame": 1,
+        "age": 28,
+        "country": "Argentina",
+    },
+    {
+        "name": "Miguel Sánchez", "constructor": "Independent",
+        "pace": 4, "consistency": 6,
+        "aggression": 4, "mechanical_sympathy": 7, "wet_skill": 6,
+        "fame": 0,
+        "age": 40,
+        "country": "Argentina",
+    },
+
     {
         "name": "Rico Valente", "constructor": "Test",
         "pace": 9, "consistency": 3,
@@ -273,6 +342,9 @@ constructors = {
         "chassis_id": "enzoni_works_monocoque",
         "dev_bonus": 0.25,          # already using this idea
         "dev_attempt_chance": 0.85, # how often they try per offseason
+        "prestige": 15.0,           # team prestige - affects driver loyalty and poaching
+        "max_drivers": 2,           # how many cars/drivers the team can field
+        "replenishes": True,        # AI team will sign replacements if below max_drivers
     },
     "Scuderia Valdieri": {
         "country": "Italy",
@@ -280,6 +352,9 @@ constructors = {
         "chassis_id": "valdieri_works_spaceframe",
         "dev_bonus": 0.20,
         "dev_attempt_chance": 0.80,
+        "prestige": 12.0,           # strong team but below Enzoni
+        "max_drivers": 2,           # standard two-car team
+        "replenishes": True,        # AI team will sign replacements
     },
     # Privateer Valdieri: Prince Sagat's private entry using customer Valdieri equipment
     "Privateer Valdieri": {
@@ -289,9 +364,24 @@ constructors = {
         "dev_bonus": 0.0,  # no factory development
         "dev_attempt_chance": 0.0,  # privateers don't develop
         "is_privateer": True,
+        "prestige": 5.0,            # modest prestige from royal backing
+        "max_drivers": 1,           # gentleman driver only
+        "replenishes": False,       # won't sign others
     },
-    "Independent": {"speed": 5, "reliability": 4},
-    "Test": {"speed": 5, "reliability": 4},
+    "Independent": {
+        "speed": 5,
+        "reliability": 4,
+        "prestige": 0.0,            # no team prestige
+        "max_drivers": 999,         # no limit (catch-all category)
+        "replenishes": False,       # not a real team
+    },
+    "Test": {
+        "speed": 5,
+        "reliability": 4,
+        "prestige": 0.0,
+        "max_drivers": 999,
+        "replenishes": False,
+    },
 }
 
  
@@ -301,6 +391,10 @@ constructors = {
 
 
 tracks = {
+    # ==========================================================================
+    # EUROPEAN GRAND PRIX CIRCUITS
+    # ==========================================================================
+    
     "Marblethorpe GP": {
         "country": "UK",
         "flavor": "Nestled in the rolling hills of the northern countryside, Marblethorpe is a test of endurance on its long, sweeping corners. The circuit's high speeds demand precise car setup, and the unpredictable weather often turns races into survival challenges. Local fans pack the grandstands, waving flags and cheering for homegrown talent.",
@@ -322,6 +416,10 @@ tracks = {
         "appearance_prestige_mult": 14,
         "suspension_importance": 1.00,
         "grid_size": 28,
+        # Track evolution ratings
+        "safety_rating": 4,         # Decent for the era
+        "facilities_rating": 5,     # Good grandstands
+        "prestige_rating": 5,       # Respected British venue
    },
     "Château-des-Prés GP": {
         "country": "France",
@@ -344,6 +442,10 @@ tracks = {
         "appearance_base": 40,
         "appearance_prestige_mult": 15,             
         "grid_size": 20,
+        # Track evolution ratings
+        "safety_rating": 3,         # Tight streets = dangerous
+        "facilities_rating": 6,     # French elegance
+        "prestige_rating": 6,       # Historic venue
   },
     "Vallone GP": {
         "country": "Italy",
@@ -365,8 +467,12 @@ tracks = {
         "suspension_importance": 0.85,
         "appearance_base": 70,
         "appearance_prestige_mult": 18,
-        "grid_size": 30, 
-},
+        "grid_size": 30,
+        # Track evolution ratings
+        "safety_rating": 4,         # Fast but some barriers
+        "facilities_rating": 7,     # Premier Italian venue
+        "prestige_rating": 9,       # Crown jewel of motorsport
+    },
     "Rougemont GP": {
         "country": "Switzerland",
         "flavor": "Perched in the pristine Swiss Alps, Rougemont is a circuit of precision and beauty. The cool mountain air and sweeping alpine views create a serene backdrop for intense competition, where mechanical perfection is rewarded. Swiss efficiency reigns in the pits, with watches ticking in sync with lap times, and the crisp air carries the scent of fresh snow from nearby peaks.",
@@ -387,7 +493,11 @@ tracks = {
         "appearance_base": 30,
         "suspension_importance": 1.00,
         "appearance_prestige_mult": 14,
-},
+        # Track evolution ratings
+        "safety_rating": 5,         # Swiss precision
+        "facilities_rating": 5,     # Well-maintained
+        "prestige_rating": 4,       # Scenic but smaller
+    },
     "Ardennes Endurance GP": {
         "country": "Belgium",
         "flavor": "The grueling Ardennes circuit winds through the dense forests of the Belgian Ardennes, a true test of man and machine. Its long distance and variable weather make reliability paramount, and the thick woods muffle the cheers of sparse crowds. Victory here is a badge of honor, whispered about in smoky bars across Europe.",
@@ -409,8 +519,70 @@ tracks = {
         "appearance_base": 80,
         "appearance_prestige_mult": 20,
         "grid_size": 35,
-},
+        # Track evolution ratings
+        "safety_rating": 3,         # Forest = dangerous
+        "facilities_rating": 5,     # Basic but functional
+        "prestige_rating": 8,       # Legendary endurance test
+    },
+    
+    "Schwarzwald Ring": {
+        "country": "Germany",
+        "flavor": "The Green Hell. Over 170 corners carved into the forested mountains, the Schwarzwald Ring is motorsport's ultimate challenge. Dense forests, blind crests, and unpredictable weather create a lethal combination that has humbled the greatest drivers. The German crowds gather at infamous corners like Teufelskurve and Adlersprung, where courage is tested against the mountain itself.",
+        "engine_danger": 1.20,
+        "crash_danger": 1.25,
+        "pace_weight": 1.05,
+        "consistency_weight": 1.15,
+        "wet_chance": 0.45,
+        "base_hot_chance": 0.15,
+        "heat_intensity": 1.00,
+        "weight_pace_importance": 0.6,
+        "weight_crash_importance": 1.2,
+        "length_km": 22.8,          # The full Nordschleife
+        "race_distance_km": 350.0,
+        "fame_mult": 1.6,
+        "xp_mult": 1.6,
+        "fame_cap": 5.0,
+        "suspension_importance": 1.25,
+        "appearance_base": 90,
+        "appearance_prestige_mult": 22,
+        "grid_size": 30,
+        # Track evolution ratings
+        "safety_rating": 2,         # Terrifyingly dangerous
+        "facilities_rating": 6,     # Good German infrastructure
+        "prestige_rating": 9,       # Legendary status
+    },
+    
+    "Circuito de las Palmas": {
+        "country": "Spain",
+        "flavor": "The coastal street circuit winds through the elegant harbor district, where palm trees line the course and Mediterranean sunshine beats down on the tarmac. Spanish passion fills the air as local heroes battle international stars on the tight, demanding layout. The post-race celebrations spill into the city's tapas bars.",
+        "engine_danger": 1.00,
+        "crash_danger": 1.12,
+        "pace_weight": 0.98,
+        "consistency_weight": 1.08,
+        "wet_chance": 0.15,
+        "base_hot_chance": 0.50,
+        "heat_intensity": 1.18,
+        "weight_pace_importance": 1.1,
+        "weight_crash_importance": 1.0,
+        "length_km": 6.3,
+        "race_distance_km": 250.0,
+        "fame_mult": 1.1,
+        "xp_mult": 1.1,
+        "fame_cap": 3.5,
+        "suspension_importance": 1.15,
+        "appearance_base": 55,
+        "appearance_prestige_mult": 16,
+        "grid_size": 24,
+        # Track evolution ratings
+        "safety_rating": 3,         # Street circuit
+        "facilities_rating": 5,     # City provides support
+        "prestige_rating": 6,       # Growing reputation
+    },
 
+    # ==========================================================================
+    # EUROPEAN CLUB CIRCUITS (Regional/Local)
+    # ==========================================================================
+    
     "Bradley Fields": {
         "country": "UK",
         "allowed_nationalities": ["UK", "France", "Belgium", "Switzerland"],
@@ -433,6 +605,10 @@ tracks = {
         "appearance_prestige_mult": 12,
         "grid_size": 15,
         "suspension_importance": 1.00,
+        # Track evolution ratings
+        "safety_rating": 2,         # Basic club facilities
+        "facilities_rating": 2,     # Hay bales and hope
+        "prestige_rating": 2,       # Local hero venue
     },
     "Little Autodromo": {
         "country": "Italy",
@@ -456,8 +632,15 @@ tracks = {
         "appearance_prestige_mult": 12,
         "grid_size": 20,
         "suspension_importance": 1.00,
+        # Track evolution ratings
+        "safety_rating": 3,         # Italian testing venue
+        "facilities_rating": 3,     # Small but proper
+        "prestige_rating": 3,       # Stepping stone circuit
     },
-    #idea for race that pops up in 1950
+    # ==========================================================================
+    # AMERICAS CIRCUITS (from 1948)
+    # ==========================================================================
+    
     "Union Speedway": {
         "country": "USA",
         "flavor": "A vast American oval under the wide-open skies, Union Speedway is where horsepower reigns supreme. The long straights and high banking test the limits of speed and courage, with the roar of engines echoing across the plains. American crowds are boisterous, waving flags, and the post-race gatherings are legendary. Victory here is about raw power and the dream of motorsport.",
@@ -479,11 +662,11 @@ tracks = {
         "appearance_prestige_mult": 25,
         "grid_size": 40,
         "suspension_importance": 1.05,
+        # Track evolution ratings
+        "safety_rating": 3,         # Ovals are fast and dangerous
+        "facilities_rating": 8,     # American money
+        "prestige_rating": 8,       # Legendary American venue
     },
-
-    # ==========================================================================
-    # AMERICAS CIRCUITS (from 1948)
-    # ==========================================================================
     
     "Autódromo General San Martín": {
         "country": "Argentina",
@@ -506,6 +689,10 @@ tracks = {
         "appearance_base": 65,
         "appearance_prestige_mult": 18,
         "grid_size": 28,
+        # Track evolution ratings
+        "safety_rating": 4,         # Modern South American venue
+        "facilities_rating": 6,     # Good infrastructure
+        "prestige_rating": 7,       # Continental pride
     },
     
     "Circuito da Estrada Velha": {
@@ -530,6 +717,10 @@ tracks = {
         "appearance_prestige_mult": 13,
         "grid_size": 18,
         "suspension_importance": 1.10,
+        # Track evolution ratings
+        "safety_rating": 2,         # Basic Brazilian club
+        "facilities_rating": 2,     # Humble beginnings
+        "prestige_rating": 2,       # Local proving ground
     },
     
     "Copper State Circuit": {
@@ -554,6 +745,99 @@ tracks = {
         "appearance_prestige_mult": 14,
         "grid_size": 22,
         "suspension_importance": 1.05,
+        # Track evolution ratings
+        "safety_rating": 3,         # Desert run-off helps
+        "facilities_rating": 3,     # Modest American venue
+        "prestige_rating": 3,       # Regional interest
+    },
+    
+    # ==========================================================================
+    # AFRICAN CIRCUITS (from 1950)
+    # ==========================================================================
+    
+    "Kingsport Coastal Circuit": {
+        "country": "South Africa",
+        "flavor": "On the rugged Eastern Cape coastline, the Kingsport circuit brings motorsport to the southern tip of Africa. The sea breeze and coastal humidity create unique conditions, while the passionate South African crowds embrace racing with colonial-era enthusiasm. The circuit's challenging elevation changes and fast corners demand respect, and victory here earns acclaim across the Commonwealth.",
+        "engine_danger": 1.05,
+        "crash_danger": 1.08,
+        "pace_weight": 1.05,
+        "consistency_weight": 1.00,
+        "wet_chance": 0.25,
+        "base_hot_chance": 0.40,
+        "heat_intensity": 1.10,
+        "weight_pace_importance": 0.9,
+        "weight_crash_importance": 0.85,
+        "length_km": 5.0,
+        "race_distance_km": 240.0,
+        "fame_mult": 1.0,
+        "xp_mult": 1.0,
+        "fame_cap": 3.0,
+        "appearance_base": 45,
+        "appearance_prestige_mult": 15,
+        "grid_size": 24,
+        "suspension_importance": 1.05,
+        # Track evolution ratings
+        "safety_rating": 3,         # Developing venue
+        "facilities_rating": 4,     # Colonial infrastructure
+        "prestige_rating": 5,       # Commonwealth prestige
+    },
+    
+    "Circuit de Sable d'Or": {
+        "country": "Morocco",
+        "flavor": "Along the Atlantic coast, the Circuit de Sable d'Or is an exotic jewel in motorsport's crown. The North African heat shimmers on the tarmac as European teams face unfamiliar conditions. The French colonial influence shows in the organization, while Moroccan hospitality provides a unique atmosphere. Palm trees line the pit straight, and the call to prayer mingles with the scream of engines.",
+        "engine_danger": 1.08,
+        "crash_danger": 1.05,
+        "pace_weight": 1.02,
+        "consistency_weight": 1.00,
+        "wet_chance": 0.10,             # North Africa = dry
+        "base_hot_chance": 0.55,
+        "heat_intensity": 1.18,
+        "weight_pace_importance": 0.85,
+        "weight_crash_importance": 0.9,
+        "length_km": 7.6,
+        "race_distance_km": 280.0,
+        "fame_mult": 1.1,
+        "xp_mult": 1.1,
+        "fame_cap": 3.2,
+        "appearance_base": 50,
+        "appearance_prestige_mult": 16,
+        "grid_size": 26,
+        "suspension_importance": 0.95,
+        # Track evolution ratings
+        "safety_rating": 3,         # Coastal but basic
+        "facilities_rating": 5,     # French colonial quality
+        "prestige_rating": 5,       # Exotic appeal
+    },
+    
+    # ==========================================================================
+    # ASIAN CIRCUITS (from 1952)
+    # ==========================================================================
+    
+    "Fuji Kogen Circuit": {
+        "country": "Japan",
+        "flavor": "Rising from the mists of rural Japan, Fuji Kogen is a technical masterpiece that rewards precision driving. The unique figure-eight layout with its crossover bridge creates corners unlike anywhere else, from the lightning-fast Hayabusa curve to the tight Tanuki bends. Japanese efficiency keeps the facility immaculate, and the respectful crowds bring a different energy to racing. Cherry blossoms frame the paddock in spring, and victory here earns honor across Asia.",
+        "engine_danger": 1.10,
+        "crash_danger": 1.15,
+        "pace_weight": 1.08,
+        "consistency_weight": 1.05,
+        "wet_chance": 0.35,             # Japanese monsoons
+        "base_hot_chance": 0.35,
+        "heat_intensity": 1.12,
+        "weight_pace_importance": 0.7,
+        "weight_crash_importance": 1.0,
+        "length_km": 5.8,
+        "race_distance_km": 260.0,
+        "fame_mult": 1.2,
+        "xp_mult": 1.2,
+        "fame_cap": 3.8,
+        "appearance_base": 55,
+        "appearance_prestige_mult": 17,
+        "grid_size": 26,
+        "suspension_importance": 1.15,
+        # Track evolution ratings
+        "safety_rating": 4,         # Japanese attention to detail
+        "facilities_rating": 6,     # Excellent infrastructure
+        "prestige_rating": 6,       # Growing Asian interest
     },
 
 

@@ -323,6 +323,26 @@ def show_race_briefing(state, time, race_name):
     print(f"{race_name} ({country})")
     print(f"Week {time.week}, {MONTHS[time.month]} {time.year}")
     print("-----------------------------")
+    
+    # Track grade and ratings
+    from gmr.track_evolution import get_track_grade, get_track_rating
+    grade = get_track_grade(race_name, time.year)
+    safety = get_track_rating(race_name, "safety")
+    facilities = get_track_rating(race_name, "facilities")
+    prestige = get_track_rating(race_name, "prestige")
+    
+    grade_desc = {
+        "A": "World Championship",
+        "B": "International",
+        "C": "Regional",
+        "D": "Club"
+    }.get(grade, "Unknown")
+    
+    print(f"FIA Grade: {grade} ({grade_desc})")
+    print(f"Safety: {'★' * safety}{'☆' * (10 - safety)} ({safety}/10)")
+    print(f"Facilities: {'★' * facilities}{'☆' * (10 - facilities)} ({facilities}/10)")
+    print(f"Prestige: {'★' * prestige}{'☆' * (10 - prestige)} ({prestige}/10)")
+    print()
 
     # --- Home/Away flavour (optional, safe) ---
     team_country = getattr(state, "country", None)
@@ -515,9 +535,19 @@ def handle_race_week(state, time):
         
         if chosen is None:
             # Player chose to skip both races - run them AI-only
-            for skip_race in skipped:
-                skip_track = tracks.get(skip_race, {})
-                run_ai_only_race(state, skip_race, time, season_week, skip_track)
+            # But drivers can only be at one race, so split the grid
+            first_race = skipped[0]
+            second_race = skipped[1]
+            first_track = tracks.get(first_race, {})
+            second_track = tracks.get(second_race, {})
+            
+            # Run first race and get drivers who participated
+            drivers_at_first = run_ai_only_race(state, first_race, time, season_week, first_track)
+            
+            # Run second race excluding drivers from first race
+            run_ai_only_race(state, second_race, time, season_week, second_track, 
+                           excluded_drivers=drivers_at_first or set())
+            
             state.completed_races.add(season_week)
             return
         else:
@@ -580,13 +610,15 @@ def handle_race_week(state, time):
         print("You watch from the paddock as other teams take part.")
         input("\nPress Enter to continue...")
 
-        run_ai_only_race(state, race_name, time, season_week, track_profile)
+        drivers_in_main_race = run_ai_only_race(state, race_name, time, season_week, track_profile)
         
         # If there was a clash, run the other race as AI-only too
+        # Drivers in the main race can't also be at the skipped race
         if skipped_race:
             print(f"\nMeanwhile, at {skipped_race}...")
             skipped_track = tracks.get(skipped_race, {})
-            run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
+            run_ai_only_race(state, skipped_race, time, season_week, skipped_track,
+                           excluded_drivers=drivers_in_main_race or set())
 
         state.completed_races.add(season_week)  # Mark as done to prevent loop
 
@@ -617,20 +649,22 @@ def handle_race_week(state, time):
                 print(f"They will be unable to drive for another {weeks_remaining} week{'s' if weeks_remaining != 1 else ''}.")
                 print("You cannot enter this race.")
                 input("\nPress Enter to continue...")
-                run_ai_only_race(state, race_name, time, season_week, track_profile)
+                drivers_in_main_race = run_ai_only_race(state, race_name, time, season_week, track_profile)
                 if skipped_race:
                     skipped_track = tracks.get(skipped_race, {})
-                    run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
+                    run_ai_only_race(state, skipped_race, time, season_week, skipped_track,
+                                   excluded_drivers=drivers_in_main_race or set())
                 state.completed_races.add(season_week)  # Mark as done to prevent loop
                 return
 
             if getattr(state, "tyre_sets", 0) <= 0:
                 print("\nYou have no tyre sets available and cannot start the race.")
                 input("\nPress Enter to continue...")
-                run_ai_only_race(state, race_name, time, season_week, track_profile)
+                drivers_in_main_race = run_ai_only_race(state, race_name, time, season_week, track_profile)
                 if skipped_race:
                     skipped_track = tracks.get(skipped_race, {})
-                    run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
+                    run_ai_only_race(state, skipped_race, time, season_week, skipped_track,
+                                   excluded_drivers=drivers_in_main_race or set())
                 state.completed_races.add(season_week)  # Mark as done to prevent loop
                 return
             
@@ -662,13 +696,23 @@ def handle_race_week(state, time):
                                 print(f"Paid £{transport_cost}. Proceeding to the race.")
                             else:
                                 print("You don't have enough money. Skipping the race.")
-                                run_ai_only_race(state, race_name, time, season_week, track_profile)
+                                drivers_in_main_race = run_ai_only_race(state, race_name, time, season_week, track_profile)
+                                if skipped_race:
+                                    print(f"\nMeanwhile, at {skipped_race}...")
+                                    skipped_track = tracks.get(skipped_race, {})
+                                    run_ai_only_race(state, skipped_race, time, season_week, skipped_track,
+                                                   excluded_drivers=drivers_in_main_race or set())
                                 state.completed_races.add(season_week)  # Mark as done to prevent loop
                                 return
                             break
                         elif sub_choice == "2":
                             print("Skipping the race.")
-                            run_ai_only_race(state, race_name, time, season_week, track_profile)
+                            drivers_in_main_race = run_ai_only_race(state, race_name, time, season_week, track_profile)
+                            if skipped_race:
+                                print(f"\nMeanwhile, at {skipped_race}...")
+                                skipped_track = tracks.get(skipped_race, {})
+                                run_ai_only_race(state, skipped_race, time, season_week, skipped_track,
+                                               excluded_drivers=drivers_in_main_race or set())
                             state.completed_races.add(season_week)  # Mark as done to prevent loop
                             return
                         else:
@@ -698,13 +742,23 @@ def handle_race_week(state, time):
                                 print(f"Paid £{transatlantic_cost}. Proceeding to the race.")
                             else:
                                 print("You don't have enough money. Skipping the race.")
-                                run_ai_only_race(state, race_name, time, season_week, track_profile)
+                                drivers_in_main_race = run_ai_only_race(state, race_name, time, season_week, track_profile)
+                                if skipped_race:
+                                    print(f"\nMeanwhile, at {skipped_race}...")
+                                    skipped_track = tracks.get(skipped_race, {})
+                                    run_ai_only_race(state, skipped_race, time, season_week, skipped_track,
+                                                   excluded_drivers=drivers_in_main_race or set())
                                 state.completed_races.add(season_week)  # Mark as done to prevent loop
                                 return
                             break
                         elif sub_choice == "2":
                             print("Skipping the race.")
-                            run_ai_only_race(state, race_name, time, season_week, track_profile)
+                            drivers_in_main_race = run_ai_only_race(state, race_name, time, season_week, track_profile)
+                            if skipped_race:
+                                print(f"\nMeanwhile, at {skipped_race}...")
+                                skipped_track = tracks.get(skipped_race, {})
+                                run_ai_only_race(state, skipped_race, time, season_week, skipped_track,
+                                               excluded_drivers=drivers_in_main_race or set())
                             state.completed_races.add(season_week)  # Mark as done to prevent loop
                             return
                         else:
@@ -718,13 +772,15 @@ def handle_race_week(state, time):
             input("\nPress Enter to continue...")
 
             # ❌ NO TRAVEL CHARGE when skipping
-            run_ai_only_race(state, race_name, time, season_week, track_profile)
+            drivers_in_main_race = run_ai_only_race(state, race_name, time, season_week, track_profile)
             
             # If there was a clash, run the other race as AI-only too
+            # Drivers in the main race can't also be at the skipped race
             if skipped_race:
                 print(f"\nMeanwhile, at {skipped_race}...")
                 skipped_track = tracks.get(skipped_race, {})
-                run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
+                run_ai_only_race(state, skipped_race, time, season_week, skipped_track,
+                               excluded_drivers=drivers_in_main_race or set())
             
             state.completed_races.add(season_week)  # Mark as done to prevent loop
             return
@@ -796,10 +852,13 @@ def handle_race_week(state, time):
                 state.news.clear()
 
             # If there was a clash, run the skipped race as AI-only
+            # Exclude drivers who raced in the player's race (stored during qualifying)
             if skipped_race:
                 print(f"\nMeanwhile, at {skipped_race}...")
                 skipped_track = tracks.get(skipped_race, {})
-                run_ai_only_race(state, skipped_race, time, season_week, skipped_track)
+                drivers_in_main_race = getattr(state, 'last_race_drivers', set())
+                run_ai_only_race(state, skipped_race, time, season_week, skipped_track,
+                               excluded_drivers=drivers_in_main_race)
                 if state.news:
                     print("\n--- Results from the other race ---")
                     for item in state.news:

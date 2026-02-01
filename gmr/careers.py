@@ -78,81 +78,101 @@ def tick_driver_contract_after_race_end(state, time, started_race: bool):
 
 
 
+def maybe_refill_ai_teams(state, time):
+    """
+    Check all AI teams that have 'replenishes': True in their constructor data.
+    If they have fewer drivers than 'max_drivers', they sign from Independents.
+    
+    This handles Valdieri, Enzoni (after tragedy), and any future teams.
+    """
+    from gmr.data import constructors
+    
+    for team_name, team_data in constructors.items():
+        # Skip non-replenishing teams
+        if not team_data.get("replenishes", False):
+            continue
+        
+        # Skip teams that aren't active yet (special case: Valdieri)
+        if team_name == "Scuderia Valdieri" and not getattr(state, "valdieri_active", False):
+            continue
+        
+        # Skip Enzoni if they've withdrawn (post-1950 tragedy)
+        if team_name == "Enzoni" and getattr(state, "enzoni_withdrawn", False):
+            continue
+        
+        # Current roster
+        current_drivers = [d for d in drivers if d.get("constructor") == team_name]
+        max_drivers = team_data.get("max_drivers", 2)
+        needed = max_drivers - len(current_drivers)
+        
+        if needed <= 0:
+            continue
+        
+        # Build candidate pool from Independents
+        team_prestige = team_data.get("prestige", 0.0)
+        candidates = []
+        
+        for d in drivers:
+            if d.get("constructor") != "Independent":
+                continue
+            if state.player_driver is d:
+                continue
+            
+            pace = d.get("pace", 0)
+            cons = d.get("consistency", 0)
+            fame = float(d.get("fame", 0))
+            age = d.get("age", 40)
+            
+            # Scoring: pace + consistency primary, with some fame/youth interest
+            # Higher prestige teams are pickier about pace
+            youth_bonus = max(0, 38 - age) * 0.12
+            prestige_factor = 1.0 + (team_prestige / 20.0)  # higher prestige = higher standards
+            
+            score = (
+                pace * 1.25 * prestige_factor +
+                cons * 1.00 +
+                fame * 0.45 +
+                youth_bonus
+            )
+            
+            candidates.append((score, d))
+        
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        
+        if not candidates:
+            state.news.append(f"{team_name} search for replacements, but cannot secure a driver.")
+            continue
+        
+        signed_names = []
+        for _ in range(needed):
+            if not candidates:
+                break
+            
+            pick = candidates.pop(0)[1]
+            pick["constructor"] = team_name
+            signed_names.append(pick["name"])
+            
+            # Remove from candidate list
+            candidates = [(s, drv) for (s, drv) in candidates if drv is not pick]
+        
+        if signed_names:
+            if len(signed_names) == 1:
+                state.news.append(
+                    f"{team_name} respond to the market: they sign {signed_names[0]} to fill an empty seat."
+                )
+            else:
+                names_str = " and ".join(signed_names) if len(signed_names) == 2 else ", ".join(signed_names)
+                state.news.append(
+                    f"{team_name} rebuild their lineup: they sign {names_str}."
+                )
+
+
 def maybe_refill_valdieri_drivers(state, time):
     """
-    If Valdieri is active but has fewer than 2 drivers (poached / retired),
-    they sign replacements from the Independent pool.
+    Legacy wrapper - now handled by maybe_refill_ai_teams.
+    Kept for backward compatibility with existing calls.
     """
-
-    team = "Scuderia Valdieri"
-
-    # Only after they've arrived in the world
-    if not getattr(state, "valdieri_active", False):
-        return
-
-    # Current Valdieri roster
-    valdieri_drivers = [d for d in drivers if d.get("constructor") == team]
-    needed = 2 - len(valdieri_drivers)
-
-    if needed <= 0:
-        return
-
-    # Candidate pool: Independent only (don't steal player)
-    candidates = []
-    for d in drivers:
-        if d.get("constructor") != "Independent":
-            continue
-        if state.player_driver is d:
-            continue
-
-        pace = d.get("pace", 0)
-        cons = d.get("consistency", 0)
-        fame = float(d.get("fame", 0))
-        age = d.get("age", 40)
-
-        # Valdieri mentality:
-        # - Pace + consistency still king
-        # - Youth bias (but not too strong)
-        # - SOME fame interest (headline value / sponsorship attention)
-        youth_bonus = max(0, 38 - age) * 0.12
-
-        s = (
-            pace * 1.25 +
-            cons * 1.00 +
-            fame * 0.45 +
-            youth_bonus
-        )
-
-        candidates.append((s, d))
-
-    candidates.sort(key=lambda x: x[0], reverse=True)
-
-    if not candidates:
-        state.news.append(f"{team} search for replacements, but cannot secure a driver.")
-        return
-
-    signed_names = []
-    for _ in range(needed):
-        if not candidates:
-            break
-
-        pick = candidates.pop(0)[1]
-        old_team = pick.get("constructor", "Independent")
-        pick["constructor"] = team
-        signed_names.append(pick["name"])
-
-        # Remove duplicates of the same object if they exist
-        candidates = [(s, drv) for (s, drv) in candidates if drv is not pick]
-
-    if signed_names:
-        if len(signed_names) == 1:
-            state.news.append(
-                f"{team} respond to the market: they sign {signed_names[0]} to fill an empty seat."
-            )
-        else:
-            state.news.append(
-                f"{team} rebuild their lineup: they sign {signed_names[0]} and {signed_names[1]}."
-            )
+    maybe_refill_ai_teams(state, time)
 
 
 
@@ -409,21 +429,73 @@ def init_driver_careers():
 
 def spawn_new_rookies(state, time):
     """
-    At the end of each season, introduce a few new independent drivers
+    At the end of each season, introduce new independent drivers
     into the global driver pool so the grid stays fresh.
+    
+    The number of rookies is based on:
+    - Base number that increases slightly each year
+    - Regional economic health (wealthy regions produce more drivers)
+    - Motorsport culture (regions that love racing produce more talent)
     """
     year = time.year
 
-    # How many new faces per year (early era is still fairly small)
-    if year == 1947:
-        num_new = 4
-    elif year == 1948:
-        num_new = 4
+    # Base number increases as sport grows
+    if year <= 1948:
+        base_rookies = 4
+    elif year <= 1950:
+        base_rookies = 5
     else:
-        num_new = 2
+        base_rookies = 6
 
-      
+    # Calculate bonus rookies based on regional economic and motorsport health
+    bonus_rookies = 0
+    
+    # Import world economy data
+    from gmr.world_economy import COUNTRIES
+    
+    # Group countries by their name pool region for rookie spawning
+    region_pools = {
+        "italian": ["Italy"],
+        "french": ["France"],
+        "germanic": ["Germany", "Switzerland"],
+        "british": ["UK"],
+        "iberian": ["Spain"],
+        "brazilian": ["Brazil"],
+        "argentinian": ["Argentina"],
+    }
+    
+    # Calculate regional contribution to rookie pool
+    regional_scores = {}
+    for pool_name, countries in region_pools.items():
+        total_score = 0
+        for country_name in countries:
+            country_data = COUNTRIES.get(country_name, {})
+            
+            # Get current economy (check if world_economy exists on state)
+            if hasattr(state, 'world_economy'):
+                economy = state.world_economy.get_current_economy(country_name)
+            else:
+                economy = country_data.get("base_economy", 5)
+            
+            motorsport = country_data.get("motorsport_culture", 5)
+            
+            # Score: economy * motorsport culture (wealthy racing-mad nations produce drivers)
+            # Scale: economy 1-10, motorsport 1-10, so max 100 per country
+            score = (economy * motorsport) / 10  # Normalize to 0-10 range
+            total_score += score
+        
+        regional_scores[pool_name] = total_score
+    
+    # Add bonus rookies from high-performing regions
+    # Threshold: score > 5 adds a chance for bonus rookie from that region
+    for pool_name, score in regional_scores.items():
+        if score > 5:
+            # Higher score = higher chance of bonus rookie
+            chance = (score - 5) * 0.15  # 6 score = 15%, 10 score = 75%
+            if random.random() < chance:
+                bonus_rookies += 1
 
+    num_new = base_rookies + bonus_rookies
 
     if num_new <= 0:
         return
@@ -436,12 +508,16 @@ def spawn_new_rookies(state, time):
             "first": [
                 "Carlo", "Giuseppe", "Alberto", "Vittorio", "Enrico", "Luigi",
                 "Gino", "Franco", "Sergio", "Paolo", "Bruno", "Antonio",
-                "Mario", "Renato", "Piero", "Aldo",
+                "Mario", "Renato", "Piero", "Aldo", "Giancarlo", "Umberto",
+                "Eugenio", "Nino", "Dorino", "Felice", "Consalvo", "Clemente",
+                "Tazio", "Achille", "Silvio", "Gastone", "Onofre", "Ludovico",
             ],
             "last": [
                 "Bianchi", "Conti", "De Luca", "Moretti", "Galli", "Marini",
                 "Esposito", "Romano", "Colombo", "Serafini", "Barbieri",
-                "Valenti", "Bernardi", "Ricci", "Ferretti",
+                "Valenti", "Bernardi", "Ricci", "Ferretti", "Marchetti", "Venturi",
+                "Mantovani", "Rossetti", "Benedetti", "Santini", "Carbone",
+                "Pellegrini", "Lombardi", "Grasso", "De Angelis", "Morandi",
             ],
         },
 
@@ -449,23 +525,31 @@ def spawn_new_rookies(state, time):
             "first": [
                 "Jean", "Pierre", "Henri", "Lucien", "Marcel", "Jacques",
                 "Émile", "Roger", "Louis", "Georges", "André",
-                "Armand", "Claude",
+                "Armand", "Claude", "Yves", "Alain", "Raymond", "Maurice",
+                "Robert", "Guy", "François", "Patrick", "Didier", "René",
+                "Jean-Pierre", "Olivier", "Étienne",
             ],
             "last": [
                 "Dubois", "Morel", "Lefèvre", "Lambert", "Renaud", "Girard",
                 "Faure", "Perrin", "Marchand", "Chevalier",
-                "Delattre", "Vandermonde",
+                "Delattre", "Vandermonde", "Beaumont", "Moreau", "Fontaine",
+                "Reynard", "Blanchard", "Garnier", "Rousseau", "Clement",
+                "Beauchamp", "Lavigne", "Desmond", "Vaillant",
             ],
         },
 
         "germanic": {
             "first": [
                 "Hans", "Karl", "Ernst", "Wilhelm", "Otto", "Friedrich",
-                "Rudolf", "Heinz", "Kurt", "Franz",
+                "Rudolf", "Heinz", "Kurt", "Franz", "Wolfgang", "Helmut",
+                "Klaus", "Dieter", "Rolf", "Horst", "Manfred", "Gerhard",
+                "Bernd", "Jochen", "Hubert", "Hermann",
             ],
             "last": [
                 "Keller", "Schneider", "Weiss", "Bauer", "Klein",
                 "Vogel", "Hartmann", "Neumann", "Hoffner", "Brandt",
+                "Steiner", "Lorenz", "Lang", "Krause", "Zimmermann",
+                "Hahn", "Gruber", "Maier", "Berger", "Wagner",
             ],
         },
 
@@ -473,22 +557,55 @@ def spawn_new_rookies(state, time):
             "first": [
                 "John", "Jack", "Arthur", "Edward", "George", "Henry",
                 "Ronald", "Stanley", "Frederick", "Albert",
-                "Dennis", "Peter", "Norman",
+                "Dennis", "Peter", "Norman", "Reginald", "Mike", "Graham",
+                "Colin", "James", "Richard", "Nigel", "Derek",
+                "Tony", "Bruce", "David", "William",
             ],
             "last": [
                 "Hawkins", "Turner", "Collins", "Bennett", "Walker",
                 "Thompson", "Mitchell", "Baker", "Ellis",
-                "Harrison", "Caldwell", "Broome",
+                "Harrison", "Caldwell", "Broome", "Pemberton", "Whitmore",
+                "Crawford", "Ashby", "Barrington", "Thornton", "Weston", "Hartley",
+                "Kingsley", "Marlowe", "Fairfax", "Chambers",
             ],
         },
 
         "iberian": {
             "first": [
                 "Juan", "Miguel", "Carlos", "Luis", "Manuel", "Rafael",
+                "Ángel", "Andrés", "Javier", "Pablo", "Tomás", "Vicente",
+                "Alfonso", "Paco", "Pedro", "Antonio",
             ],
             "last": [
                 "Navarro", "Morales", "Serrano", "Domínguez",
-                "Carrasco", "Iglesias",
+                "Carrasco", "Iglesias", "Velasco", "Cordero", "Aguilar",
+                "Cabral", "Montero", "Herrera", "Sala", "Campos",
+            ],
+        },
+
+        "brazilian": {
+            "first": [
+                "João", "Paulo", "Rubens", "Chico", "Sérgio", "Wilson",
+                "Nelson", "Emerson", "Roberto", "Maurício", "Raul", "Clovis",
+                "Carlos", "Luiz", "Pedro", "Antônio", "Ingo", "Cristiano",
+            ],
+            "last": [
+                "Figueiredo", "Mendonça", "Almeida", "Ribeiro", "Silveira", "Cardoso",
+                "Teixeira", "Ferreira", "Machado", "Bueno", "Leme", "Guimarães",
+                "Nogueira", "Tavares", "Moreira", "Coutinho", "Meira", "Pinheiro",
+            ],
+        },
+
+        "argentinian": {
+            "first": [
+                "Juan", "Carlos", "Fernando", "Héctor", "Raúl", "Oscar",
+                "José", "Froilán", "Onofre", "Clemar", "Norberto", "Benedicto",
+                "Roberto", "Ricardo", "Alejandro", "Gastón",
+            ],
+            "last": [
+                "Ortega", "Ramos", "Sánchez", "Vidal", "González", "Gálvez",
+                "Quiroga", "Acosta", "Perdomo", "Bordeu", "Leguizamón", "Medina",
+                "Aguirre", "Romero", "Peralta", "Villanueva",
             ],
         },
     }
@@ -499,8 +616,25 @@ def spawn_new_rookies(state, time):
     for i in range(num_new):
         # ------------------------------
         # Name generation (paired pools)
+        # Weight pool selection by regional motorsport/economic score
         # ------------------------------
-        pool_key = random.choice(list(NAME_POOLS.keys()))
+        # Build weighted pool selection
+        pool_weights = []
+        for pool_name in NAME_POOLS.keys():
+            weight = regional_scores.get(pool_name, 5.0)
+            pool_weights.append((pool_name, weight))
+        
+        # Weighted random selection
+        total_weight = sum(w for _, w in pool_weights)
+        roll = random.uniform(0, total_weight)
+        cumulative = 0
+        pool_key = list(NAME_POOLS.keys())[0]  # fallback
+        for name, weight in pool_weights:
+            cumulative += weight
+            if roll <= cumulative:
+                pool_key = name
+                break
+        
         pool = NAME_POOLS[pool_key]
         for _ in range(10):
             first = random.choice(pool["first"])
@@ -519,6 +653,8 @@ def spawn_new_rookies(state, time):
             "germanic": "Switzerland",  # or Germany, but Switzerland fits
             "british": "UK",
             "iberian": "Spain",  # or Portugal, but Spain fits
+            "brazilian": "Brazil",
+            "argentinian": "Argentina",
         }
         country = country_map.get(pool_key, "UK")  # default to UK
 
@@ -813,6 +949,38 @@ def maybe_expand_enzoni_to_three_cars(state, time):
         )
 
 
+def maybe_release_surviving_enzoni_driver(state, time):
+    """
+    At the start of 1951, if the demo finale has occurred (an Enzoni driver died),
+    the surviving Enzoni driver becomes available on the driver market.
+    
+    They remain an Enzoni driver but are marked as 'hirable' so they appear
+    in the driver market menu alongside other drivers.
+    """
+    if time.year != 1951:
+        return
+    
+    # Only trigger if the demo finale has occurred
+    if not getattr(state, "demo_driver_death_done", False):
+        return
+    
+    # Only do this once
+    if getattr(state, "enzoni_driver_unlocked", False):
+        return
+    
+    # Find remaining Enzoni drivers and mark them as hirable
+    enzoni_drivers = [d for d in drivers if d.get("constructor") == "Enzoni"]
+    
+    for driver in enzoni_drivers:
+        driver["hirable"] = True
+        state.news.append(
+            f"After the tragedy at Ardennes, {driver['name']} has indicated he may consider "
+            f"offers from other teams. Enzoni's factory program remains uncertain."
+        )
+    
+    state.enzoni_driver_unlocked = True
+
+
 def show_driver_profile(state, driver):
     """
     Show detailed career profile for a driver.
@@ -1021,9 +1189,10 @@ def show_driver_market(state):
             print("Current Driver: None hired")
 
         # Build market list: all non-Enzoni / non-Test drivers
+        # Exception: Enzoni drivers marked as "hirable" (e.g., surviving driver after 1950 tragedy)
         market_drivers = [
             d for d in drivers
-            if d["constructor"] not in ("Enzoni", "Test")
+            if d["constructor"] not in ("Enzoni", "Test") or d.get("hirable")
         ]
 
         print("\nAvailable Drivers:")
@@ -1084,15 +1253,27 @@ def show_driver_market(state):
             input("\nPress Enter to return to the Driver Market...")
             continue
 
-        # --- Fame vs prestige gate: some drivers won't sign for small teams ---
-        can_sign, required_prestige = can_team_sign_driver(state, selected_driver)
+        # --- Fame/team prestige gate: some drivers won't sign for small teams ---
+        can_sign, required_prestige, rejection_reason = can_team_sign_driver(state, selected_driver)
         if not can_sign:
             fame = selected_driver.get("fame", 0)
-            print(f"\n{selected_driver['name']} and their backers don't believe your team is ready yet.")
-            print(f"  Their fame: {fame}")
-            print(f"  Your team prestige: {state.prestige:.1f}")
-            print(f"  They'd expect a team with at least {required_prestige:.1f} prestige.")
-            print("Put in stronger results or build more reputation before approaching them again.")
+            current_team = selected_driver.get("constructor", "Independent")
+            
+            if rejection_reason == "team":
+                # Driver is at a bigger team - harder to poach
+                print(f"\n{selected_driver['name']} is happy at {current_team}.")
+                print(f"Why would they leave a team with prestige {required_prestige - 3:.1f} for yours?")
+                print(f"  Your team prestige: {state.prestige:.1f}")
+                print(f"  Required to poach: {required_prestige:.1f}+")
+                print("You'll need to build a significantly more prestigious team to lure them away.")
+            else:
+                # Fame-based rejection
+                print(f"\n{selected_driver['name']} and their backers don't believe your team is ready yet.")
+                print(f"  Their fame: {fame}")
+                print(f"  Your team prestige: {state.prestige:.1f}")
+                print(f"  They'd expect a team with at least {required_prestige:.1f} prestige.")
+                print("Put in stronger results or build more reputation before approaching them again.")
+            
             input("\nPress Enter to return to the Driver Market...")
             continue
 
@@ -1232,6 +1413,9 @@ def show_driver_market(state):
 
         print(f"\nYou have hired {selected_driver['name']} as your driver.")
         print(f"They will now race for {state.player_constructor}.")
+
+        # Check if any AI teams need to refill after losing this driver
+        maybe_refill_ai_teams(state, time)
 
         input("\nPress Enter to return to the main menu...")
         return
