@@ -866,7 +866,16 @@ def maybe_offer_sponsor(state, time):
         "Castello Banking": {"appearance": 100, "points": 20, "podium": 200, "bonus": 3500},
     }
 
-    multipliers = base_multipliers.get(sponsor_name, {"appearance": 60, "points": 10, "podium": 120, "bonus": 2000})
+    # Validate sponsor_name exists - fail fast on typos
+    if sponsor_name not in base_multipliers:
+        valid_sponsors = list(base_multipliers.keys())
+        raise KeyError(
+            f"Unknown sponsor '{sponsor_name}'. "
+            f"Valid sponsors are: {valid_sponsors}. "
+            f"Check for typos in sponsor name."
+        )
+    
+    multipliers = base_multipliers[sponsor_name]
 
     print(f"  • £{multipliers['bonus']} signing bonus immediately")
     print(f"  • £{multipliers['appearance']} appearance payment per race started")

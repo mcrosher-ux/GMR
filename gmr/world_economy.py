@@ -476,6 +476,62 @@ GLOBAL_EVENTS = [
 
 
 # =============================================================================
+# VALIDATION HELPERS
+# =============================================================================
+
+# Track warnings we've already shown (to avoid spam)
+_warned_countries = set()
+
+
+def validate_country(country_name, context=""):
+    """
+    Validate that a country exists in COUNTRIES and has a region.
+    
+    Returns: (country_data, region, is_valid)
+    
+    If country is unknown, logs a warning (once per country) and returns
+    fallback data so the game doesn't crash.
+    """
+    global _warned_countries
+    
+    if country_name in COUNTRIES:
+        country_data = COUNTRIES[country_name]
+        region = country_data.get("region", "")
+        if not region:
+            if country_name not in _warned_countries:
+                print(f"⚠️ WARNING: Country '{country_name}' has no region defined. {context}")
+                _warned_countries.add(country_name)
+            return country_data, "", False
+        return country_data, region, True
+    
+    # Unknown country - log warning once
+    if country_name not in _warned_countries:
+        valid_countries = list(COUNTRIES.keys())
+        print(f"⚠️ WARNING: Unknown country '{country_name}'. {context}")
+        print(f"   Valid countries: {valid_countries}")
+        _warned_countries.add(country_name)
+    
+    # Return fallback data
+    fallback_data = {
+        "name": country_name,
+        "region": "",
+        "base_economy": 5,
+        "population_millions": 20,
+        "motorsport_culture": 5,
+        "wealth_distribution": 0.5,
+        "political_stability": 5,
+        "industrial_strength": 5,
+        "flavor": "A country with unknown characteristics.",
+    }
+    return fallback_data, "", False
+
+
+def get_all_valid_regions():
+    """Return set of all unique regions defined in COUNTRIES."""
+    return {data["region"] for data in COUNTRIES.values() if data.get("region")}
+
+
+# =============================================================================
 # WORLD STATE CLASS
 # =============================================================================
 
@@ -501,7 +557,7 @@ class WorldEconomy:
         self.event_log = []
     
     def get_country(self, country_name):
-        """Get country data by name."""
+        """Get country data by name. Returns None if not found."""
         return COUNTRIES.get(country_name)
     
     def get_current_economy(self, country_name):
@@ -510,8 +566,9 @@ class WorldEconomy:
         
         # Apply active event modifiers
         modifier = 1.0
-        country_data = COUNTRIES.get(country_name, {})
-        region = country_data.get("region", "")
+        country_data, region, is_valid = validate_country(
+            country_name, context="in get_current_economy()"
+        )
         
         for event_data in self.active_events:
             event = event_data["event"]
@@ -525,8 +582,9 @@ class WorldEconomy:
     def get_attendance_modifier(self, country_name):
         """Get current attendance modifier for a country (affected by events)."""
         modifier = 1.0
-        country_data = COUNTRIES.get(country_name, {})
-        region = country_data.get("region", "")
+        country_data, region, is_valid = validate_country(
+            country_name, context="in get_attendance_modifier()"
+        )
         
         for event_data in self.active_events:
             event = event_data["event"]
@@ -612,7 +670,9 @@ class WorldEconomy:
         Returns: (attendance, attendance_details)
         """
         country_name = track_data.get("country", "Italy")
-        country_data = COUNTRIES.get(country_name, {})
+        country_data, region, is_valid = validate_country(
+            country_name, context=f"for track '{track_name}' in calculate_attendance()"
+        )
         
         # Base attendance from track data
         base_attendance = track_data.get("appearance_base", 50) * 1000
@@ -673,7 +733,7 @@ class WorldEconomy:
             "final": attendance,
             "country": country_name,
             "active_events": [e["event"]["name"] for e in self.active_events 
-                           if e["scope"] == "global" or e["scope"] == country_data.get("region", "")],
+                           if e["scope"] == "global" or e["scope"] == region],
         }
         
         # Store in history

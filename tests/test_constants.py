@@ -8,7 +8,16 @@ from gmr.constants import (
     get_reliability_mult,
     get_crash_mult,
     get_prize_for_race_and_pos,
-    DEFAULT_PRIZE_TOP3
+    DEFAULT_PRIZE_TOP3,
+    CHASSIS_AERO_MIN,
+    CHASSIS_AERO_MAX,
+    CHASSIS_SUSPENSION_MIN,
+    CHASSIS_SUSPENSION_MAX,
+    CHASSIS_WEIGHT_MIN,
+    CHASSIS_WEIGHT_MAX,
+    clamp_chassis_aero,
+    clamp_chassis_suspension,
+    clamp_chassis_weight,
 )
 from gmr.core_time import GameTime
 
@@ -170,3 +179,163 @@ class TestGetPrizeForRaceAndPos:
         
         # Should get finisher bonus (50)
         assert prize_4th == 50
+
+
+class TestChassisStatLimits:
+    """Test suite for chassis stat limit constants."""
+    
+    def test_aero_limits_valid(self):
+        """Test aero limits are in valid range."""
+        assert CHASSIS_AERO_MIN == 1
+        assert CHASSIS_AERO_MAX == 12
+        assert CHASSIS_AERO_MIN < CHASSIS_AERO_MAX
+    
+    def test_suspension_limits_valid(self):
+        """Test suspension limits are in valid range."""
+        assert CHASSIS_SUSPENSION_MIN == 1
+        assert CHASSIS_SUSPENSION_MAX == 10
+        assert CHASSIS_SUSPENSION_MIN < CHASSIS_SUSPENSION_MAX
+    
+    def test_weight_limits_valid(self):
+        """Test weight limits are in valid range."""
+        assert CHASSIS_WEIGHT_MIN == 3
+        assert CHASSIS_WEIGHT_MAX == 10
+        assert CHASSIS_WEIGHT_MIN < CHASSIS_WEIGHT_MAX
+
+
+class TestClampChassisAero:
+    """Test suite for clamp_chassis_aero function."""
+    
+    def test_clamp_aero_within_range(self):
+        """Test aero values within range are unchanged."""
+        assert clamp_chassis_aero(5) == 5
+        assert clamp_chassis_aero(1) == 1
+        assert clamp_chassis_aero(12) == 12
+    
+    def test_clamp_aero_below_min(self):
+        """Test aero values below min are clamped."""
+        assert clamp_chassis_aero(0) == CHASSIS_AERO_MIN
+        assert clamp_chassis_aero(-5) == CHASSIS_AERO_MIN
+    
+    def test_clamp_aero_above_max(self):
+        """Test aero values above max are clamped."""
+        assert clamp_chassis_aero(13) == CHASSIS_AERO_MAX
+        assert clamp_chassis_aero(15) == CHASSIS_AERO_MAX
+        assert clamp_chassis_aero(100) == CHASSIS_AERO_MAX
+    
+    def test_clamp_aero_boundary_development_scenario(self):
+        """Test clamping during development: aero=11 + 2 = 13 should clamp to 12."""
+        current_aero = 11
+        delta = 2
+        result = clamp_chassis_aero(current_aero + delta)
+        assert result == 12  # Clamped to max
+    
+    def test_clamp_aero_big_gain_scenario(self):
+        """Test clamping during big gain: aero=10 + 3 = 13 should clamp to 12."""
+        current_aero = 10
+        delta = 3
+        result = clamp_chassis_aero(current_aero + delta)
+        assert result == 12
+
+
+class TestClampChassisSuspension:
+    """Test suite for clamp_chassis_suspension function."""
+    
+    def test_clamp_suspension_within_range(self):
+        """Test suspension values within range are unchanged."""
+        assert clamp_chassis_suspension(5) == 5
+        assert clamp_chassis_suspension(1) == 1
+        assert clamp_chassis_suspension(10) == 10
+    
+    def test_clamp_suspension_below_min(self):
+        """Test suspension values below min are clamped."""
+        assert clamp_chassis_suspension(0) == CHASSIS_SUSPENSION_MIN
+        assert clamp_chassis_suspension(-3) == CHASSIS_SUSPENSION_MIN
+    
+    def test_clamp_suspension_above_max(self):
+        """Test suspension values above max are clamped."""
+        assert clamp_chassis_suspension(11) == CHASSIS_SUSPENSION_MAX
+        assert clamp_chassis_suspension(15) == CHASSIS_SUSPENSION_MAX
+    
+    def test_clamp_suspension_big_gain_scenario(self):
+        """Test clamping during big gain: suspension=8 + 3 = 11 should clamp to 10."""
+        current = 8
+        delta = 3
+        result = clamp_chassis_suspension(current + delta)
+        assert result == 10
+
+
+class TestClampChassisWeight:
+    """Test suite for clamp_chassis_weight function."""
+    
+    def test_clamp_weight_within_range(self):
+        """Test weight values within range are unchanged."""
+        assert clamp_chassis_weight(5) == 5
+        assert clamp_chassis_weight(3) == 3
+        assert clamp_chassis_weight(10) == 10
+    
+    def test_clamp_weight_below_min(self):
+        """Test weight values below min are clamped."""
+        assert clamp_chassis_weight(2) == CHASSIS_WEIGHT_MIN
+        assert clamp_chassis_weight(0) == CHASSIS_WEIGHT_MIN
+        assert clamp_chassis_weight(-1) == CHASSIS_WEIGHT_MIN
+    
+    def test_clamp_weight_above_max(self):
+        """Test weight values above max are clamped."""
+        assert clamp_chassis_weight(11) == CHASSIS_WEIGHT_MAX
+        assert clamp_chassis_weight(15) == CHASSIS_WEIGHT_MAX
+    
+    def test_clamp_weight_big_reduction_scenario(self):
+        """Test clamping during big reduction: weight=4 - 2 = 2 should clamp to 3."""
+        current = 4
+        delta = 2
+        result = clamp_chassis_weight(current - delta)
+        assert result == 3  # Clamped to min
+
+
+class TestSequentialModifications:
+    """Test that sequential modifications stay within bounds."""
+    
+    def test_sequential_aero_increases(self):
+        """Test that multiple aero increases never exceed max."""
+        aero = 5
+        for _ in range(20):  # 20 sequential +2 gains
+            aero = clamp_chassis_aero(aero + 2)
+        assert aero == CHASSIS_AERO_MAX
+        assert aero <= 12
+    
+    def test_sequential_suspension_increases(self):
+        """Test that multiple suspension increases never exceed max."""
+        suspension = 3
+        for _ in range(20):  # 20 sequential +3 gains
+            suspension = clamp_chassis_suspension(suspension + 3)
+        assert suspension == CHASSIS_SUSPENSION_MAX
+        assert suspension <= 10
+    
+    def test_sequential_weight_decreases(self):
+        """Test that multiple weight decreases never go below min."""
+        weight = 8
+        for _ in range(20):  # 20 sequential -2 reductions
+            weight = clamp_chassis_weight(weight - 2)
+        assert weight == CHASSIS_WEIGHT_MIN
+        assert weight >= 3
+    
+    def test_mixed_modifications_stay_valid(self):
+        """Test that mixed good/bad outcomes keep values valid."""
+        import random
+        random.seed(42)  # Reproducible
+        
+        aero = 6
+        suspension = 5
+        weight = 7
+        
+        for _ in range(100):
+            # Random development outcomes
+            aero = clamp_chassis_aero(aero + random.choice([-1, 1, 2, 3]))
+            suspension = clamp_chassis_suspension(suspension + random.choice([-1, 1, 2, 3]))
+            weight = clamp_chassis_weight(weight + random.choice([-2, -1, 1]))
+            
+            # Verify bounds after every modification
+            assert CHASSIS_AERO_MIN <= aero <= CHASSIS_AERO_MAX
+            assert CHASSIS_SUSPENSION_MIN <= suspension <= CHASSIS_SUSPENSION_MAX
+            assert CHASSIS_WEIGHT_MIN <= weight <= CHASSIS_WEIGHT_MAX

@@ -55,10 +55,12 @@ def normalise_country(name: str) -> str:
 def calc_travel_cost(home_country: str, event_country: str, year: int) -> int:
     """
     Simple early-era logistics costs.
-    - Domestic: tow/van + fuel
-    - Near Europe: short hop (France/Belgium etc.)
-    - Far Europe: longer haul (Italy etc.)
-    - USA: ship + major logistics
+    - Domestic: same country (tow/van + fuel)
+    - Near Europe: short hop within nearby European countries
+    - Far Europe: longer haul (Italy, or intra-Americas travel)
+    - Transatlantic: crossing the Atlantic (Americas <-> non-Americas)
+
+    Warns if unknown countries are encountered (fallback to NEAR_EUROPE).
     """
     home = normalise_country(home_country)
     dest = normalise_country(event_country)
@@ -77,9 +79,19 @@ def calc_travel_cost(home_country: str, event_country: str, year: int) -> int:
     if home == dest:
         return int(DOMESTIC * era_mult)
 
-    # USA, Brazil, Argentina trips are expensive (transatlantic) for non-American teams
+    # USA, Brazil, Argentina trips are expensive (transatlantic) only when crossing the Atlantic
+    # i.e., one location in Americas + one location outside Americas
     americas = {"USA", "Brazil", "Argentina"}
-    if home in americas or dest in americas:
+    home_in_americas = home in americas
+    dest_in_americas = dest in americas
+
+    # Both in Americas = intra-Americas (still expensive shipping but not transatlantic logic)
+    # For now treat intra-Americas as FAR_EUROPE equivalent (long haul within continent)
+    if home_in_americas and dest_in_americas:
+        return int(FAR_EUROPE * era_mult)
+
+    # Crossing the Atlantic (one in Americas, one outside)
+    if home_in_americas or dest_in_americas:
         return int(TRANSATLANTIC * era_mult)
 
     # --- Europe split ---
@@ -95,6 +107,16 @@ def calc_travel_cost(home_country: str, event_country: str, year: int) -> int:
 
     # Fallback: if you add new countries later and forget to tag them,
     # treat as near-Europe rather than doing something wild.
+    # But warn so developers know a country needs to be added to a region set.
+    all_known = americas | near_europe | far_europe
+    unknown = [c for c in (home, dest) if c not in all_known]
+    if unknown:
+        import warnings
+        warnings.warn(
+            f"calc_travel_cost: unknown country/countries {unknown!r} - "
+            f"defaulting to NEAR_EUROPE cost. Add to americas/near_europe/far_europe set.",
+            stacklevel=2
+        )
     return int(NEAR_EUROPE * era_mult)
 
 
@@ -126,94 +148,10 @@ def charge_race_travel_if_needed(state, time, race_name, track_profile):
     return cost
 
 
-def handle_contract_end_after_race(state):
-    """
-    After a race, if the driver's contract has just hit 0 races remaining,
-    offer a chance to renew. If declined, the driver leaves the team.
-    """
-    if not state.player_driver:
-        return
+# NOTE: handle_contract_end_after_race was removed - contract handling is now
+# centralized in careers.py via tick_driver_contract_after_race_end() which
+# is called from race_engine.py after the race completes.
 
-    races_left = getattr(state, "driver_contract_races", 0)
-    if races_left > 0:
-        # Still races left on the deal, nothing to do.
-        return
-
-    d = state.player_driver
-    team_name = state.player_constructor or "your team"
-
-    print("\n=== Driver Contract Decision ===")
-    print(f"{d['name']}'s contract with {team_name} has now expired.")
-    print("Do you want to discuss a new deal with them?")
-
-    choice = input("Renew this driver? (y/n): ").strip().lower()
-    if choice != "y":
-        # Let them go
-        print(f"\nYou part ways with {d['name']} at the end of the weekend.")
-        state.news.append(
-            f"{d['name']} departs {team_name} as their contract ends."
-        )
-        d["constructor"] = "Independent"
-        state.player_driver = None
-        return
-
-    print(f"\nYou sit down with {d['name']} to discuss a fresh contract.")
-
-    # Re-use your hire logic: stats + fame → pay
-    stat_sum = (
-        d["pace"]
-        + d["consistency"]
-        + d["aggression"]
-        + d["mechanical_sympathy"]
-        + d["wet_skill"]
-    )
-    fame = d.get("fame", 0)
-
-    base_pay = stat_sum * 2
-    fame_factor = 1 + fame * 0.10
-    pay_per_race = int(base_pay * fame_factor)
-
-    while True:
-        races_str = input(
-            f"How many races do you want to offer {d['name']}? (1–12): "
-        ).strip()
-        if not races_str.isdigit():
-            print("Please enter a number.")
-            continue
-        races = int(races_str)
-        if races < 1:
-            print("Contract must be at least 1 race.")
-            continue
-        if races > 12:
-            print("Let's keep it to 12 races or fewer for now.")
-            continue
-        break
-
-    total_value = pay_per_race * races
-
-    print(f"\nProposed renewal:")
-    print(f"  Length: {races} race(s)")
-    print(f"  Pay per race: £{pay_per_race}")
-    print(f"  Total value: £{total_value}")
-    confirm = input("Confirm this renewed contract? (y/n): ").strip().lower()
-    if confirm != "y":
-        print("Talks break down; the driver moves on.")
-        state.news.append(
-            f"Contract talks with {d['name']} collapse; they leave {team_name}."
-        )
-        d["constructor"] = "Independent"
-        state.player_driver = None
-        return
-
-    # Lock in renewed deal
-    state.driver_contract_races = races
-    state.driver_pay = pay_per_race
-    d["constructor"] = team_name
-
-    print(f"\n{d['name']} signs a new deal for {races} race(s).")
-    state.news.append(
-        f"{d['name']} signs a new contract with {team_name} for {races} race(s)."
-    )
 
 def describe_level(value, name):
     """
@@ -715,6 +653,7 @@ def handle_race_week(state, time):
                         if sub_choice in ("1", ""):
                             if state.money >= transport_cost:
                                 state.money -= transport_cost
+                                state.last_week_outgoings += transport_cost
                                 state.last_week_travel_cost += transport_cost
                                 if not hasattr(state, 'transport_paid_races'):
                                     state.transport_paid_races = set()
@@ -750,6 +689,7 @@ def handle_race_week(state, time):
                         if sub_choice in ("1", ""):
                             if state.money >= transatlantic_cost:
                                 state.money -= transatlantic_cost
+                                state.last_week_outgoings += transatlantic_cost
                                 state.last_week_travel_cost += transatlantic_cost
                                 if not hasattr(state, 'transport_paid_races'):
                                     state.transport_paid_races = set()

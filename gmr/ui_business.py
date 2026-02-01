@@ -152,6 +152,7 @@ def handle_pr_trip(state, time):
     # Pay and log
     state.money -= PR_COST
     state.last_week_purchases += PR_COST
+    state.last_week_outgoings += PR_COST
     state.last_pr_abs_week = time.absolute_week
 
     # Prestige boost with some swing

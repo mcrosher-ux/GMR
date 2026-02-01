@@ -3,7 +3,13 @@ import random
 import json
 import os
 from gmr.data import constructors
-from gmr.constants import MONTHS, TEST_DRIVERS_ENABLED
+from gmr.constants import (
+    MONTHS,
+    TEST_DRIVERS_ENABLED,
+    clamp_chassis_aero,
+    clamp_chassis_suspension,
+    clamp_chassis_weight,
+)
 from gmr.core_time import GameTime, get_season_week
 from gmr.core_state import GameState
 from gmr.careers import (
@@ -754,6 +760,7 @@ def run_game():
 
                 # Pay base running costs
                 state.money -= base_outgoings
+                state.last_week_outgoings += base_outgoings
 
 
 
@@ -791,6 +798,7 @@ def run_game():
 
                         dev_weekly_cost = 20  # extra money spent on experiments/materials
                         state.money -= dev_weekly_cost
+                        state.last_week_outgoings += dev_weekly_cost
                         state.last_week_rnd += dev_weekly_cost
 
                         # Progress increases each week based on mechanic skill, with randomness.
@@ -824,30 +832,30 @@ def run_game():
                             if roll < bad_chance:
                                 # ---- BAD OUTCOME ----
                                 if state.chassis_project_stat_target == "aero":
-                                    ch["aero"] = max(1, ch.get("aero", 1) - 1)
+                                    ch["aero"] = clamp_chassis_aero(ch.get("aero", 1) - 1)
                                     outcome = "A development misstep harms airflow (-1 aero)."
 
                                 elif state.chassis_project_stat_target == "suspension":
-                                    ch["suspension"] = max(1, ch.get("suspension", 3) - 1)
+                                    ch["suspension"] = clamp_chassis_suspension(ch.get("suspension", 3) - 1)
                                     outcome = "A development misstep ruins the suspension geometry (-1 suspension)."
 
                                 else:  # weight
                                     # Weight going UP is bad (heavier)
-                                    ch["weight"] = min(10, ch.get("weight", 7) + 1)
+                                    ch["weight"] = clamp_chassis_weight(ch.get("weight", 7) + 1)
                                     outcome = "A redesign adds unwanted bracing (+1 weight)."
 
                             elif roll < bad_chance + small_chance:
                                 # ---- SMALL GAIN ----
                                 if state.chassis_project_stat_target == "aero":
-                                    ch["aero"] = ch.get("aero", 1) + 1
+                                    ch["aero"] = clamp_chassis_aero(ch.get("aero", 1) + 1)
                                     outcome = "Your mechanics find modest aerodynamic gains (+1 aero)."
 
                                 elif state.chassis_project_stat_target == "suspension":
-                                    ch["suspension"] = ch.get("suspension", 3) + 1
+                                    ch["suspension"] = clamp_chassis_suspension(ch.get("suspension", 3) + 1)
                                     outcome = "Small handling gains from suspension refinement (+1 suspension)."
 
                                 else:  # weight
-                                    ch["weight"] = max(3, ch.get("weight", 7) - 1)
+                                    ch["weight"] = clamp_chassis_weight(ch.get("weight", 7) - 1)
                                     outcome = "Weight trimmed from the frame (-1 weight)."
 
                             else:
@@ -856,27 +864,24 @@ def run_game():
                                     delta = 2
                                     if quality > 1.1 and random.random() < 0.25:
                                         delta = 3
-                                    ch["aero"] = ch.get("aero", 1) + delta
+                                    ch["aero"] = clamp_chassis_aero(ch.get("aero", 1) + delta)
                                     outcome = f"Major aerodynamic breakthrough on your chassis (+{delta} aero)."
 
                                 elif state.chassis_project_stat_target == "suspension":
                                     delta = 2
                                     if quality > 1.1 and random.random() < 0.20:
                                         delta = 3
-                                    ch["suspension"] = ch.get("suspension", 3) + delta
+                                    ch["suspension"] = clamp_chassis_suspension(ch.get("suspension", 3) + delta)
                                     outcome = f"Major suspension breakthrough (+{delta} suspension)."
 
                                 else:  # weight (big gain = bigger reduction)
                                     delta = 1
                                     if quality > 1.1 and random.random() < 0.25:
                                         delta = 2
-                                    ch["weight"] = max(3, ch.get("weight", 7) - delta)
+                                    ch["weight"] = clamp_chassis_weight(ch.get("weight", 7) - delta)
                                     outcome = f"A big weight-saving redesign (-{delta} weight)."
 
-                            # ---- Clamp stats ----
-                            ch["aero"] = max(1, min(ch.get("aero", 1), 12))
-                            ch["suspension"] = max(1, min(ch.get("suspension", 3), 10))
-                            ch["weight"] = max(3, min(ch.get("weight", 7), 10))
+                            # Note: Stats are already clamped immediately above, no deferred clamping needed
 
 
                             # Recalculate car speed
@@ -940,6 +945,7 @@ def run_game():
                         interest = 1  # at least something each week
 
                     state.money -= interest
+                    state.last_week_outgoings += interest
                     state.last_week_loan_interest = interest
 
                     team_name = state.player_constructor or "Your team"

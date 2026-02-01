@@ -104,6 +104,7 @@ def show_engine_shop(state):
     # Perform purchase
     state.money -= price
     state.last_week_purchases += price
+    state.last_week_outgoings += price
 
     # IMPORTANT: install a *new unit instance* (don't point at the global catalogue dict)
     state.current_engine = dict(selected_engine)
@@ -227,6 +228,7 @@ def show_chassis_shop(state):
     # Perform purchase
     state.money -= price
     state.last_week_purchases += price
+    state.last_week_outgoings += price
 
     state.current_chassis = dict(selected_chassis)
 
@@ -299,6 +301,7 @@ def show_tyre_shop(state):
 
     state.money -= total_cost
     state.last_week_purchases += total_cost
+    state.last_week_outgoings += total_cost
     state.tyre_sets = getattr(state, "tyre_sets", 0) + qty
 
     print(f"Purchased {qty} tyre set(s). You now have {state.tyre_sets} set(s).")
@@ -592,6 +595,7 @@ def handle_test_day(state, time):
     # Pay and log as a 'purchase' for weekly finances
     state.money -= TEST_DAY_COST
     state.last_week_purchases += TEST_DAY_COST
+    state.last_week_outgoings += TEST_DAY_COST
 
     # Time stamp the test so we can't spam it
     state.last_test_abs_week = time.absolute_week
@@ -742,6 +746,7 @@ def handle_repairs(state):
                 else:
                     state.money -= cost
                     state.last_week_purchases += cost
+                    state.last_week_outgoings += cost
                     state.engine_wear = state.engine_max_condition
                     print("Your mechanics strip and rebuild the engine. It feels fresh again.")
                     state.news.append(
@@ -775,6 +780,7 @@ def handle_repairs(state):
                 else:
                     state.money -= cost
                     state.last_week_purchases += cost
+                    state.last_week_outgoings += cost
                     # Restore up to the current ceiling
                     state.chassis_wear = cap
                     print("Your mechanics straighten, reinforce and refresh the chassis.")
@@ -872,6 +878,7 @@ def handle_garage_upgrades(state, time):
                     if state.money >= upgrade["cost"]:
                         state.money -= upgrade["cost"]
                         state.last_week_purchases += upgrade["cost"]
+                        state.last_week_outgoings += upgrade["cost"]
                         state.garage.upgrades.append(upgrade_id)
 
                         # Apply immediate benefits

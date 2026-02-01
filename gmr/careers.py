@@ -33,29 +33,6 @@ def era_fame_scale(year: int) -> float:
         return 0.75
     return 1.0
 
-def tick_driver_contract_after_race_start(state, time):
-    """
-    Decrement contract length by 1 for any race the player entered.
-    If it expires, offer extension; if refused, release driver.
-    """
-    if not state.player_driver:
-        return
-
-    if getattr(state, "driver_contract_races", 0) <= 0:
-        return
-
-    # decrement once per race entered
-    state.driver_contract_races -= 1
-
-    # expired -> offer extension
-    if state.driver_contract_races <= 0:
-        extended = maybe_offer_driver_extension(state, time)
-
-        # ✅ IMPORTANT:
-        # maybe_offer_driver_extension() now handles the "driver leaves" cleanup itself.
-        # So if not extended, do NOT try to log or touch the driver here.
-        if not extended:
-            return
 
 def tick_driver_contract_after_race_end(state, time, started_race: bool):
     """
@@ -63,6 +40,8 @@ def tick_driver_contract_after_race_end(state, time, started_race: bool):
     and ONLY if the player actually started the race.
 
     If it expires, offer extension; if refused, release driver AFTER the race.
+    
+    Guards against being called multiple times in the same race week.
     """
     if not state.player_driver:
         return
@@ -72,6 +51,20 @@ def tick_driver_contract_after_race_end(state, time, started_race: bool):
 
     if getattr(state, "driver_contract_races", 0) <= 0:
         return
+    
+    # Guard: Track which race week we last decremented to prevent double-decrement
+    current_week = getattr(time, "week", 0)
+    current_year = getattr(time, "year", 0)
+    last_decrement_week = getattr(state, "_contract_last_decrement_week", -1)
+    last_decrement_year = getattr(state, "_contract_last_decrement_year", -1)
+    
+    if current_year == last_decrement_year and current_week == last_decrement_week:
+        # Already decremented this race week - skip to prevent double-decrement
+        return
+    
+    # Record that we're decrementing this week
+    state._contract_last_decrement_week = current_week
+    state._contract_last_decrement_year = current_year
 
     # decrement once per race started
     state.driver_contract_races -= 1
@@ -1132,6 +1125,8 @@ def show_driver_market(state):
                 
                 # Process buyout
                 state.money -= buyout_cost
+                state.last_week_outgoings += buyout_cost
+                state.last_week_purchases += buyout_cost
                 print(f"\n✓ {current_driver['name']} has been released from their contract.")
                 print(f"   Buyout paid: £{buyout_cost}")
                 

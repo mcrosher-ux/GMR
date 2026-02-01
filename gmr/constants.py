@@ -20,6 +20,15 @@ SPONSOR_TRIGGER_RACE_WEEK = 20  # Vallone GP
 ENZONI_PRESTIGE_REQUIREMENT = 5.0  # minimum team prestige to unlock Enzoni customer engines
 CHAMPIONSHIP_ACTIVE = False
 TEST_DRIVERS_ENABLED = False  # Patch F: keep Test archetypes out of real seasons
+
+# --- Chassis stat limits ---
+CHASSIS_AERO_MIN = 1
+CHASSIS_AERO_MAX = 12
+CHASSIS_SUSPENSION_MIN = 1
+CHASSIS_SUSPENSION_MAX = 10
+CHASSIS_WEIGHT_MIN = 3
+CHASSIS_WEIGHT_MAX = 10
+
 # --- Debug / dev toggles ---
 DEBUG_MODE = True          # set False for "release-like" behaviour
 PAUSE_ON_CRASH = True      # when DEBUG_MODE, pause so console doesn't vanish
@@ -283,3 +292,18 @@ def get_available_garage_upgrades(garage, current_year):
             available.append(upgrade_id)
 
     return available
+
+
+def clamp_chassis_aero(value):
+    """Clamp aero stat to valid range [1, 12]. Always use this when modifying aero."""
+    return max(CHASSIS_AERO_MIN, min(value, CHASSIS_AERO_MAX))
+
+
+def clamp_chassis_suspension(value):
+    """Clamp suspension stat to valid range [1, 10]. Always use this when modifying suspension."""
+    return max(CHASSIS_SUSPENSION_MIN, min(value, CHASSIS_SUSPENSION_MAX))
+
+
+def clamp_chassis_weight(value):
+    """Clamp weight stat to valid range [3, 10]. Always use this when modifying weight."""
+    return max(CHASSIS_WEIGHT_MIN, min(value, CHASSIS_WEIGHT_MAX))
