@@ -492,7 +492,6 @@ def validate_country(country_name, context=""):
     If country is unknown, logs a warning (once per country) and returns
     fallback data so the game doesn't crash.
     """
-    global _warned_countries
     
     if country_name in COUNTRIES:
         country_data = COUNTRIES[country_name]
