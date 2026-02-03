@@ -10,13 +10,13 @@ class TestStageLabels:
     """Test suite for stage labels."""
     
     def test_stage_labels_count(self):
-        """Test that there are 3 stage labels."""
-        assert len(STAGE_LABELS) == 3
+        """Test that there are 5 stage labels."""
+        assert len(STAGE_LABELS) == 5
     
     def test_stage_labels_format(self):
         """Test that stage labels have correct format."""
         for i, label in enumerate(STAGE_LABELS, 1):
-            assert f"Stage {i}/3" in label
+            assert f"Stage {i}/5" in label
 
 
 class TestGetAiCarStats:

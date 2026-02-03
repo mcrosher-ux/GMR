@@ -287,6 +287,48 @@ drivers = [
         "country": "Argentina",
     },
 
+    # =========================================================================
+    # GERMAN DRIVERS - Appear from 1950 (West Germany returns to motorsport)
+    # =========================================================================
+    # These drivers represent the return of German motorsport after WWII.
+    # Before 1950, German drivers were banned from international competition.
+    {
+        "name": "Wolfgang Bergmann", "constructor": "Independent",
+        "pace": 6, "consistency": 6,
+        "aggression": 5, "mechanical_sympathy": 7, "wet_skill": 5,
+        "fame": 1,
+        "age": 32,
+        "country": "Germany",
+        "appears_from_year": 1950,  # West Germany returns
+    },
+    {
+        "name": "Klaus Richter", "constructor": "Independent",
+        "pace": 7, "consistency": 5,
+        "aggression": 6, "mechanical_sympathy": 6, "wet_skill": 4,
+        "fame": 2,
+        "age": 28,
+        "country": "Germany",
+        "appears_from_year": 1950,
+    },
+    {
+        "name": "Helmut Braun", "constructor": "Independent",
+        "pace": 5, "consistency": 7,
+        "aggression": 4, "mechanical_sympathy": 8, "wet_skill": 5,
+        "fame": 0,
+        "age": 35,
+        "country": "Germany",
+        "appears_from_year": 1950,
+    },
+    {
+        "name": "Dieter Hoffmann", "constructor": "Independent",
+        "pace": 5, "consistency": 6,
+        "aggression": 5, "mechanical_sympathy": 6, "wet_skill": 6,
+        "fame": 0,
+        "age": 33,
+        "country": "Germany",
+        "appears_from_year": 1950,
+    },
+
     {
         "name": "Rico Valente", "constructor": "Test",
         "pace": 9, "consistency": 3,
@@ -355,6 +397,18 @@ constructors = {
         "prestige": 12.0,           # strong team but below Enzoni
         "max_drivers": 2,           # standard two-car team
         "replenishes": True,        # AI team will sign replacements
+    },
+    "Silberkern-Stahl": {
+        "country": "Germany",
+        "engine_id": "silberkern_works_i6",
+        "chassis_id": "silberkern_works_spaceframe",
+        "dev_bonus": 0.22,
+        "dev_attempt_chance": 0.90,  # German engineering precision
+        "prestige": 13.0,            # prestigious German works team
+        "max_drivers": 2,
+        "replenishes": True,
+        "allowed_nationalities": ["Germany", "Switzerland"],  # Germanic drivers only
+        "appears_from_year": 1952,   # West Germany returns to motorsport
     },
     "Independent": {
         "speed": 5,
@@ -558,6 +612,7 @@ tracks = {
         "xp_mult": 1.1,
         "fame_cap": 3.5,
         "suspension_importance": 1.15,
+        "track_roughness": 1.15,        # Street circuit
         "appearance_base": 55,
         "appearance_prestige_mult": 16,
         "grid_size": 24,
@@ -578,6 +633,7 @@ tracks = {
         "base_hot_chance": 0.40,
         "heat_intensity": 1.12,
         "weight_pace_importance": 1.4,   # Light nimble cars excel
+        "track_roughness": 1.20,        # Bumpy street circuit
         "weight_crash_importance": 1.3,
         "length_km": 3.18,
         "race_distance_km": 318.0,       # 100 laps
@@ -677,6 +733,7 @@ tracks = {
         "appearance_prestige_mult": 25,
         "grid_size": 40,
         "suspension_importance": 1.05,
+        "track_roughness": 0.90,        # Smooth American oval
         # Track evolution ratings
         "safety_rating": 3,         # Ovals are fast and dangerous
         "facilities_rating": 8,     # American money
@@ -930,6 +987,22 @@ engines = [
             "but prone to overheating and mechanical drama over long distances."
         ),
 },
+{
+        "id": "silberkern_works_i6",
+        "name": "Silberkern M196 I6",
+        "supplier": "Silberkern-Stahl",
+        "speed": 7,
+        "reliability": 8,          # German reliability
+        "acceleration": 7,
+        "heat_tolerance": 8,       # Excellent cooling design
+        "price": 0,
+        "for_sale": False,
+        "description": (
+            "A masterpiece of German engineering. The fuel-injected straight-six "
+            "may lack the fury of Italian V12s, but compensates with uncanny "
+            "reliability and superior heat management. The Silver Arrows return."
+        ),
+},
 
 
 ]
@@ -1008,6 +1081,24 @@ chassis_list = [
         "description": (
             "A radical lightweight chassis prioritising agility and speed. "
             "Superb when pushed, but less forgiving over race distance."
+        ),
+       
+        "dev_slots": 2,
+        "dev_runs_done": 0,
+},
+{
+        "id": "silberkern_works_spaceframe",
+        "name": "Silberkern W196 Stromlinien",
+        "supplier": "Silberkern-Stahl",
+        "weight": 4,        # heavier than Italian rivals
+        "aero": 3,          # less aero focus
+        "suspension": 8,    # superb German engineering
+        "price": 0,
+        "for_sale": False,
+        "description": (
+            "The Silver Arrow reborn. A heavy but immaculately engineered chassis "
+            "with exceptional suspension geometry. What it lacks in lightness, "
+            "it makes up for in mechanical grip and reliability."
         ),
        
         "dev_slots": 2,

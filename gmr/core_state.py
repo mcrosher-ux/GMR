@@ -718,6 +718,9 @@ class GameState:
         # Tyres (sets in garage)
         self.tyre_sets = 1
 
+        # Garage hibernation - small teams can close for winter to save money
+        self.garage_hibernating = False
+
         # Has a bankruptcy rescue already been offered this week?
         self.bankruptcy_offered = False
 

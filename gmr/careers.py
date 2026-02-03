@@ -482,6 +482,10 @@ def maybe_refill_ai_teams(state, time, allow_poaching=False):
         if team_name == "Scuderia Valdieri" and not getattr(state, "valdieri_active", False):
             continue
         
+        # Skip Silberkern-Stahl until they debut (1952)
+        if team_name == "Silberkern-Stahl" and not getattr(state, "silberkern_active", False):
+            continue
+        
         # Skip Enzoni if they've withdrawn (post-1950 tragedy)
         if team_name == "Enzoni" and getattr(state, "enzoni_withdrawn", False):
             continue
@@ -497,9 +501,16 @@ def maybe_refill_ai_teams(state, time, allow_poaching=False):
         # Build candidate pool from Independents
         team_prestige = team_data.get("prestige", 0.0)
         player_prestige = getattr(state, "prestige", 1.0)
+        allowed_nats = team_data.get("allowed_nationalities", None)  # e.g., Silberkern = German only
         candidates = []
         
         for d in drivers:
+            # Check nationality restrictions (e.g., Silberkern only signs Germans)
+            if allowed_nats:
+                driver_nat = d.get("country", "")
+                if driver_nat not in allowed_nats:
+                    continue
+            
             # Usually only sign independents
             if d.get("constructor") != "Independent":
                 # But if poaching is enabled, consider player's driver

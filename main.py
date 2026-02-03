@@ -29,7 +29,7 @@ from gmr.sponsorship import (
     maybe_sponsor_media_event,
     maybe_weather_preparation,
 )
-from gmr.world_logic import maybe_add_weekly_rumour, calculate_car_speed, maybe_spawn_scuderia_valdieri
+from gmr.world_logic import maybe_add_weekly_rumour, calculate_car_speed, maybe_spawn_scuderia_valdieri, maybe_spawn_silberkern_stahl
 from gmr.calendar import show_calendar
 from gmr.ui_finances import show_finances
 from gmr.ui_garage import (
@@ -443,12 +443,25 @@ def run_game():
             from gmr.core_state import record_season_championship_standings
             record_season_championship_standings(state, time.year - 1)
             
+            # West Germany returns to motorsport (1950)
+            from gmr.story import maybe_announce_west_germany_return
+            maybe_announce_west_germany_return(state, time)
+            
+            # Silberkern-Stahl announcement (1952)
+            from gmr.story import maybe_announce_silberkern_stahl
+            maybe_announce_silberkern_stahl(state, time)
+            
             # FIA World Championship announcement at start of 1951
             from gmr.story import maybe_announce_world_championship, announce_championship_calendar
             maybe_announce_world_championship(state, time)
             
             # Announce championship calendar for this year (1952+)
             announce_championship_calendar(state, time)
+
+            # Wake up from garage hibernation at start of new year
+            if state.garage_hibernating:
+                state.garage_hibernating = False
+                state.news.append("🔓 The garage doors swing open. A new season awaits!")
 
             # Clear last season
             state.podiums.clear()
@@ -486,6 +499,7 @@ def run_game():
 
 
         maybe_spawn_scuderia_valdieri(state, time, season_week, race_calendar)
+        maybe_spawn_silberkern_stahl(state, time, season_week, race_calendar)
 
 
         # Warn if this is the final race on the current driver contract
@@ -521,6 +535,10 @@ def run_game():
 
         print(f"\n--- Week {time.week}, {MONTHS[time.month]} {time.year} ---")
         print(f"Company Funds: £{state.money}  |  Personal Savings: £{state.player_character.personal_savings}")
+        
+        # Hibernation status
+        if state.garage_hibernating:
+            print("🔒 GARAGE HIBERNATING - Costs suspended, no operations available")
 
         # Driver status
         if state.player_driver:
@@ -605,6 +623,19 @@ def run_game():
         print("7. Business & Contracts")
         print("8. World News & Economy")
         print("9. Encyclopedia")
+        
+        # Show hibernation option during off-season (no races in next 4 weeks)
+        can_hibernate = True
+        for w in range(season_week, min(season_week + 4, 49)):
+            if w in race_calendar:
+                can_hibernate = False
+                break
+        
+        if state.garage_hibernating:
+            print("H. Wake up from hibernation")
+        elif can_hibernate and not state.garage_hibernating:
+            print("H. Close garage for winter (save money, no improvements)")
+        
         print("S. Settings")
 
 
@@ -642,6 +673,12 @@ def run_game():
 
         elif choice == "4":
             # Garage menu
+            if state.garage_hibernating:
+                print("\n🔒 The garage is closed for winter.")
+                print("   You cannot access garage functions while hibernating.")
+                print("   Use 'H' from the main menu to wake up early, or wait for the new season.")
+                continue
+                
             while True:
                 print("\n=== Garage Menu ===")
 
@@ -704,6 +741,10 @@ def run_game():
 
 
         elif choice == "5":
+            if state.garage_hibernating:
+                print("\n🔒 The garage is closed for winter.")
+                print("   You cannot hire or release drivers while hibernating.")
+                continue
             show_driver_market(state)
 
         elif choice == "6":
@@ -721,6 +762,53 @@ def run_game():
         elif choice == "9":
             # Encyclopedia - view constructors and tracks
             show_encyclopedia(state, time)
+
+        elif choice.lower() == "h":
+            # Hibernation toggle
+            if state.garage_hibernating:
+                # Wake up early
+                state.garage_hibernating = False
+                print("\n🔓 You reopen the garage early.")
+                print("   Weekly costs will resume. Development can continue.")
+                state.news.append("The garage doors swing open. Back to work!")
+            else:
+                # Check if we can hibernate
+                can_hibernate = True
+                for w in range(season_week, min(season_week + 4, 49)):
+                    if w in race_calendar:
+                        can_hibernate = False
+                        break
+                
+                if not can_hibernate:
+                    print("\n❌ You cannot hibernate with races coming up!")
+                    print("   Close the garage only during the off-season.")
+                else:
+                    print("\n" + "=" * 50)
+                    print("  🔒 CLOSE GARAGE FOR WINTER?")
+                    print("=" * 50)
+                    print("\nClosing the garage for winter means:")
+                    print("  ✓ NO weekly running costs (staff, rent, utilities)")
+                    print("  ✓ Survive the off-season on a shoestring budget")
+                    print("")
+                    print("  ✗ NO development programs can run")
+                    print("  ✗ NO repairs or maintenance")
+                    print("  ✗ NO hiring drivers or staff")
+                    print("  ✗ NO buying or selling equipment")
+                    print("")
+                    print("The garage will automatically reopen when the new season starts.")
+                    print("\nAre you sure? (Y/N)")
+                    
+                    confirm = input("> ").strip().lower()
+                    if confirm == "y":
+                        state.garage_hibernating = True
+                        state.chassis_project_active = False  # Stop any development
+                        state.chassis_progress = 0.0
+                        print("\n🔒 The garage is closed for winter.")
+                        print("   The lights go out. The tools are covered.")
+                        print("   You lock the door and hope for a better year ahead.")
+                        state.news.append("🔒 Your garage is closed for the winter. Costs suspended.")
+                    else:
+                        print("Hibernation cancelled.")
 
         elif choice.lower() == "s":
             # Settings submenu
@@ -776,6 +864,11 @@ def run_game():
                 state.last_week_travel_cost = 0
                 state.last_week_outgoings = 0
 
+                # Skip all costs if hibernating
+                if state.garage_hibernating:
+                    # Time still advances, but no costs
+                    time.advance()
+                    continue
 
                 # Base running costs (garage + staff)
                 staff_cost = state.garage.staff_count * state.garage.staff_salary

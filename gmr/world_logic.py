@@ -631,6 +631,83 @@ def maybe_spawn_scuderia_valdieri(state, time, season_week, race_calendar):
     )
 
 
+def maybe_spawn_silberkern_stahl(state, time, season_week, race_calendar):
+    """
+    World event:
+    - In 1952, at the start of the season, Silberkern-Stahl enters with German drivers.
+    - They only sign German (or Swiss) drivers.
+    Fires once per save.
+    """
+    if time.year != 1952:
+        return
+
+    if getattr(state, "silberkern_spawned", False):
+        return
+
+    # Trigger in week 1 of 1952
+    if season_week != 1:
+        return
+
+    team = "Silberkern-Stahl"
+
+    # Safety: ensure constructor exists in data.py
+    if team not in constructors:
+        state.news.append(f"DEBUG: {team} could not spawn (missing from constructors).")
+        state.silberkern_spawned = True
+        state.silberkern_active = False
+        return
+
+    # Get allowed nationalities from constructor definition
+    team_data = constructors.get(team, {})
+    allowed_nats = team_data.get("allowed_nationalities", ["Germany", "Switzerland"])
+
+    # Build candidate pool - Germanic drivers only
+    candidates = []
+    for d in drivers:
+        if d.get("constructor") != "Independent":
+            continue
+        if state.player_driver is d:
+            continue
+
+        # Must be German or Swiss
+        nat = d.get("country", "")
+        if nat not in allowed_nats:
+            continue
+
+        age = d.get("age", 40)
+
+        # Silberkern values consistency and mechanical sympathy (engineering mindset)
+        score = (
+            d.get("pace", 0) * 1.0 +
+            d.get("consistency", 0) * 1.2 +  # Value consistency highly
+            d.get("mechanical_sympathy", 0) * 0.5 +
+            max(0, 35 - age) * 0.1  # Slight youth preference
+        )
+        candidates.append((score, d))
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+
+    if len(candidates) < 2:
+        state.news.append(f"{team} cannot find enough German drivers to field a team.")
+        state.silberkern_spawned = True
+        state.silberkern_active = False
+        return
+
+    signed = [candidates[0][1], candidates[1][1]]
+
+    for d in signed:
+        d["constructor"] = team
+
+    # Flags other systems can use
+    state.silberkern_spawned = True
+    state.silberkern_active = True
+
+    state.news.append(
+        f"🇩🇪 {team} field their first Grand Prix cars! "
+        f"{signed[0]['name']} and {signed[1]['name']} take the seats."
+    )
+
+
 def maybe_add_weekly_rumour(state, time):
     """
     Inject contextual paddock gossip that reflects actual game events.
