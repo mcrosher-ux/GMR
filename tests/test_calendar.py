@@ -77,16 +77,16 @@ class TestGenerateCalendarForYear:
         has_buenos_aires_1948 = "Autódromo General San Martín" in calendar_1948.values()
         assert has_buenos_aires_1948
     
-    def test_generate_calendar_1950_adds_union_speedway(self):
-        """Test that Union Speedway appears from 1950."""
-        calendar_1949 = generate_calendar_for_year(1949)
+    def test_generate_calendar_1951_adds_union_speedway(self):
+        """Test that Union Speedway appears from 1951 (World Championship start)."""
         calendar_1950 = generate_calendar_for_year(1950)
+        calendar_1951 = generate_calendar_for_year(1951)
         
-        # Should not be in 1949
-        assert "Union Speedway" not in calendar_1949.values()
+        # Should not be in 1950 (pre-championship)
+        assert "Union Speedway" not in calendar_1950.values()
         
-        # Should be in 1950
-        assert "Union Speedway" in calendar_1950.values()
+        # Should be in 1951 (championship begins)
+        assert "Union Speedway" in calendar_1951.values()
     
     def test_generate_calendar_deterministic_per_year(self):
         """Test that calendar generation is deterministic for same year."""

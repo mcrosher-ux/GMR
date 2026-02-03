@@ -50,6 +50,7 @@ from gmr.story import inject_demo_prologue, handle_bankruptcy_rescue
 from gmr.ui_business import show_business
 from gmr.ui_business import can_do_pr_trip
 from gmr.ui_world import show_world_economy
+from gmr.ui_encyclopedia import show_encyclopedia
 from gmr.ui_career import show_career_menu, show_player_status_brief
 from gmr.calendar import generate_calendar_for_year
 from gmr.core_state import ensure_state_fields
@@ -441,6 +442,13 @@ def run_game():
             # Record championship standings BEFORE clearing
             from gmr.core_state import record_season_championship_standings
             record_season_championship_standings(state, time.year - 1)
+            
+            # FIA World Championship announcement at start of 1951
+            from gmr.story import maybe_announce_world_championship, announce_championship_calendar
+            maybe_announce_world_championship(state, time)
+            
+            # Announce championship calendar for this year (1952+)
+            announce_championship_calendar(state, time)
 
             # Clear last season
             state.podiums.clear()
@@ -596,7 +604,8 @@ def run_game():
         print("6. Career & Personal")
         print("7. Business & Contracts")
         print("8. World News & Economy")
-        print("9. Settings")
+        print("9. Encyclopedia")
+        print("S. Settings")
 
 
         if state.pending_race_week is None:
@@ -710,6 +719,10 @@ def run_game():
             show_world_economy(state, time)
 
         elif choice == "9":
+            # Encyclopedia - view constructors and tracks
+            show_encyclopedia(state, time)
+
+        elif choice.lower() == "s":
             # Settings submenu
             while True:
                 print("\n=== Settings ===")
@@ -1215,7 +1228,7 @@ def run_game():
                             "country": "Italy",
                         },
                         {
-                            "name": "Luca Ferrari", "constructor": "Independent",
+                            "name": "Luca Bernardi", "constructor": "Independent",
                             "pace": 4, "consistency": 6,
                             "aggression": 4, "mechanical_sympathy": 6, "wet_skill": 7,
                             "fame": 0,

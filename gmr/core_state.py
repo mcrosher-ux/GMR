@@ -625,6 +625,10 @@ class GameState:
         self.race_history = []       # list of race records
         self.driver_career = {}      # driver_name -> totals/stats (legacy, still updated)
         
+        # Constructor stats tracking
+        # constructor_name -> { starts, wins, podiums, dnfs, points, best_finish }
+        self.constructor_stats = {}
+        
         # Detailed driver career histories
         # driver_name -> DriverCareerHistory object
         self.driver_histories = {}
@@ -839,6 +843,7 @@ def ensure_state_fields(state) -> None:
         ("race_history", []),
         ("driver_career", {}),
         ("driver_histories", {}),  # Detailed driver career histories
+        ("constructor_stats", {}),  # Constructor performance tracking
         ("season_points", {}),   # even if championship inactive
     ]:
         if not hasattr(state, name) or getattr(state, name) is None:

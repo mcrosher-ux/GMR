@@ -4,7 +4,6 @@
 import random
 
 from gmr.constants import (
-    CHAMPIONSHIP_ACTIVE,
     CONSTRUCTOR_SHARE,
     POINTS_TABLE,
     WEATHER_WET_CHANCE,
@@ -12,7 +11,9 @@ from gmr.constants import (
     get_crash_mult,
     TEST_DRIVERS_ENABLED,
     get_prize_for_race_and_pos,
+    is_championship_year,
 )
+from gmr.calendar import is_championship_race
 from gmr.data import drivers, tracks, constructors, engines, chassis_list
 from gmr.world_logic import driver_enters_event, get_car_speed_for_track, calculate_car_speed
 from gmr.careers import (
@@ -20,6 +21,9 @@ from gmr.careers import (
     update_driver_progress,
     grant_participation_xp_for_dnfs,
     tick_driver_contract_after_race_end,
+    update_morale_after_race,
+    update_morale_for_slow_car,
+    check_driver_walkout,
 )
 from gmr.story import maybe_trigger_demo_finale
 from gmr.world_economy import is_home_race, get_home_crowd_bonus
@@ -2097,9 +2101,12 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
     }
 
     # ---- finishers ----
+    # Check if this race counts for World Championship points
+    is_champ_race = is_championship_year(time.year) and is_championship_race(race_name, time.year)
+    
     for pos, (d, _perf) in enumerate(finishers, start=1):
         pts = 0
-        if CHAMPIONSHIP_ACTIVE and (pos - 1) < len(POINTS_TABLE):
+        if is_champ_race and (pos - 1) < len(POINTS_TABLE):
             pts = POINTS_TABLE[pos - 1]
 
         prize = get_prize_for_race_and_pos(race_name, pos - 1)
@@ -2145,6 +2152,35 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
             c["best_finish"] = pos
 
         state.driver_career[name] = c
+        
+        # Update constructor stats
+        if not hasattr(state, 'constructor_stats'):
+            state.constructor_stats = {}
+        
+        ctor_stats = state.constructor_stats.get(constructor, {
+            "starts": 0,
+            "wins": 0,
+            "podiums": 0,
+            "dnfs": 0,
+            "points": 0,
+            "prize_money": 0,
+            "best_finish": None,
+        })
+        
+        ctor_stats["starts"] += 1
+        ctor_stats["points"] += pts
+        ctor_stats["prize_money"] += prize
+        
+        if pos == 1:
+            ctor_stats["wins"] += 1
+            ctor_stats["podiums"] += 1
+        elif pos <= 3:
+            ctor_stats["podiums"] += 1
+        
+        if ctor_stats["best_finish"] is None or pos < ctor_stats["best_finish"]:
+            ctor_stats["best_finish"] = pos
+        
+        state.constructor_stats[constructor] = ctor_stats
         
         # Update detailed driver history
         if name not in state.driver_histories:
@@ -2198,6 +2234,25 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
             c["crash_dnfs"] += 1
 
         state.driver_career[name] = c
+        
+        # Update constructor stats for DNFs
+        if not hasattr(state, 'constructor_stats'):
+            state.constructor_stats = {}
+        
+        ctor_stats = state.constructor_stats.get(constructor, {
+            "starts": 0,
+            "wins": 0,
+            "podiums": 0,
+            "dnfs": 0,
+            "points": 0,
+            "prize_money": 0,
+            "best_finish": None,
+        })
+        
+        ctor_stats["starts"] += 1
+        ctor_stats["dnfs"] += 1
+        
+        state.constructor_stats[constructor] = ctor_stats
         
         # Update detailed driver history
         if name not in state.driver_histories:
@@ -2279,14 +2334,18 @@ def add_crash_explanation(state, d, track_profile, is_hot, is_wet, perspective="
         )
 
 
-def print_full_classification(race_name, finishers, retired, is_wet, is_hot, show_prompt=True):
+def print_full_classification(race_name, finishers, retired, is_wet, is_hot, year=1950, show_prompt=True):
     """
     Print the full race classification to console.
     Used for AI-only races and races where the player DNF'd.
     
     finishers: list of (driver_dict, performance)
     retired: list of (driver_dict, reason)
+    year: the current year (for championship point calculation)
     """
+    # Check if this race counts for World Championship
+    is_champ_race = is_championship_year(year) and is_championship_race(race_name, year)
+    
     print(f"\n{'='*60}")
     print(f"  {race_name} — FINAL CLASSIFICATION")
     
@@ -2311,8 +2370,8 @@ def print_full_classification(race_name, finishers, retired, is_wet, is_hot, sho
             name = d.get("name", "Unknown")
             constructor = d.get("constructor", "Independent")
             
-            # Points (if championship active)
-            pts = POINTS_TABLE[pos] if CHAMPIONSHIP_ACTIVE and pos < len(POINTS_TABLE) else 0
+            # Points (if championship race)
+            pts = POINTS_TABLE[pos] if is_champ_race and pos < len(POINTS_TABLE) else 0
             
             # Prize money
             prize = get_prize_for_race_and_pos(race_name, pos)
@@ -2372,6 +2431,9 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile, exclude
     """
     if excluded_drivers is None:
         excluded_drivers = set()
+    
+    # Check if this is a championship race for news output
+    is_champ_race = is_championship_year(time.year) and is_championship_race(race_name, time.year)
 
     # Roll conditions for flavour + crash modifiers
     is_wet, is_hot = roll_race_weather(track_profile)
@@ -2614,13 +2676,26 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile, exclude
     update_driver_progress(state, finishers, time, xp_mult=xp_mult)
 
     # Championship points (finishers only)
-    if CHAMPIONSHIP_ACTIVE:
+    # Check if this race counts for World Championship
+    is_champ_race = is_championship_year(time.year) and is_championship_race(race_name, time.year)
+    if is_champ_race:
         for pos, (d, _) in enumerate(finishers):
             if pos < len(POINTS_TABLE):
-                state.points[d["name"]] += POINTS_TABLE[pos]
+                driver_name = d["name"]
+                # Ensure driver is in points dict (may be a rookie spawned mid-season)
+                if driver_name not in state.points:
+                    state.points[driver_name] = 0
+                state.points[driver_name] += POINTS_TABLE[pos]
 
     # Headline with enhanced media flavor
     winner = finishers[0][0]
+    
+    # Add championship indicator to news
+    if is_champ_race:
+        state.news.append("=" * 50)
+        state.news.append(f"🏆 {race_name} - WORLD CHAMPIONSHIP ROUND 🏆")
+        state.news.append("=" * 50)
+    
     if len(finishers) > 1:
         runner_up = finishers[1][0]
         headline = (
@@ -2655,7 +2730,7 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile, exclude
         state.news.append(random.choice(weather_descriptions))
 
     # Show full classification to player
-    print_full_classification(race_name, finishers, retired, is_wet, is_hot, show_prompt=True)
+    print_full_classification(race_name, finishers, retired, is_wet, is_hot, year=time.year, show_prompt=True)
 
     record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired)
     
@@ -2966,7 +3041,15 @@ def simulate_qualifying(state, race_name, time, track_profile):
 
 
 def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
-    state.news.append(f"=== {race_name} ===")
+    # Check if this is a championship race
+    is_champ_race = is_championship_year(time.year) and is_championship_race(race_name, time.year)
+    
+    if is_champ_race:
+        state.news.append("=" * 50)
+        state.news.append(f"🏆 {race_name} - WORLD CHAMPIONSHIP ROUND 🏆")
+        state.news.append("=" * 50)
+    else:
+        state.news.append(f"=== {race_name} ===")
 
     # How swingy race performance is (qualifying is higher)
     variance_scale = 0.25
@@ -3135,6 +3218,9 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         print(f"{'='*60}")
         
         # Print classified finishers with points and prizes
+        # Check if this race counts for World Championship
+        is_champ_race = is_championship_year(time.year) and is_championship_race(race_name, time.year)
+        
         print("\n🏁  FINISHERS:")
         print("    " + "-"*52)
         player_name = state.player_driver.get("name") if state.player_driver else None
@@ -3143,7 +3229,7 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
             constructor = d.get("constructor", "")
             
             # Get points and prize
-            pts = POINTS_TABLE[pos-1] if CHAMPIONSHIP_ACTIVE and (pos-1) < len(POINTS_TABLE) else 0
+            pts = POINTS_TABLE[pos-1] if is_champ_race and (pos-1) < len(POINTS_TABLE) else 0
             prize = get_prize_for_race_and_pos(race_name, pos-1)
             
             # Build info string
@@ -3296,11 +3382,16 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
     # CHAMPIONSHIP POINTS + PRIZE MONEY
     # ------------------------------
 
-    # Award points ONLY if a championship exists
-    if CHAMPIONSHIP_ACTIVE:
+    # Award points ONLY if this is a championship race
+    is_champ_race = is_championship_year(time.year) and is_championship_race(race_name, time.year)
+    if is_champ_race:
         for pos, (drv, _) in enumerate(finishers):
             if pos < len(POINTS_TABLE):
-                state.points[drv["name"]] += POINTS_TABLE[pos]
+                driver_name = drv["name"]
+                # Ensure driver is in points dict (may be a rookie spawned mid-season)
+                if driver_name not in state.points:
+                    state.points[driver_name] = 0
+                state.points[driver_name] += POINTS_TABLE[pos]
 
     # Pay prize money ONLY to the player's team (your cut of organiser prize)
     if state.player_driver and player_finish_pos is not None:
@@ -3334,8 +3425,8 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         state.last_week_sponsor_income += appearance
         state.constructor_earnings += appearance
 
-        # Points bonus ONLY if a championship exists
-        if CHAMPIONSHIP_ACTIVE and player_finish_pos is not None and player_finish_pos < len(POINTS_TABLE):
+        # Points bonus ONLY if this is a championship race
+        if is_champ_race and player_finish_pos is not None and player_finish_pos < len(POINTS_TABLE):
             pts = POINTS_TABLE[player_finish_pos]
             points_bonus = int(pts * 10 * mult)
             state.money += points_bonus
@@ -3431,8 +3522,8 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
 
         line = f"{place}. {d['name']} ({d['constructor']})"
 
-        # Only show points if the championship exists
-        if CHAMPIONSHIP_ACTIVE:
+        # Only show points if this is a championship race
+        if is_champ_race:
             pts = POINTS_TABLE[pos] if pos < len(POINTS_TABLE) else 0
             line += f" - {pts} pts"
 
@@ -3622,6 +3713,53 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
     retired = []
     for d in dnf_drivers:
         retired.append((d, retire_reasons.get(d.get("name"), "unknown")))
+
+    # ✅ Update driver morale based on race result
+    if state.player_driver:
+        player_dnf = state.player_driver in dnf_drivers
+        dnf_reason = None
+        if player_dnf:
+            dnf_reason = retire_reasons.get(state.player_driver.get("name"), "unknown")
+        
+        # Calculate expected position based on car speed relative to field
+        expected_position = 10  # default mid-pack expectation
+        if hasattr(state, 'car_speed'):
+            # Compare to field average
+            field_speeds = []
+            for d in event_grid:
+                if d != state.player_driver:
+                    team = d.get("constructor", "")
+                    # Rough estimate of car speed from team
+                    field_speeds.append(50)  # placeholder
+            
+            # Better car = higher expectations
+            if state.car_speed > 70:
+                expected_position = 5
+            elif state.car_speed > 55:
+                expected_position = 8
+            elif state.car_speed < 40:
+                expected_position = 15
+        
+        # Convert 0-based position to 1-based (position 0 = 1st place)
+        actual_position = player_finish_pos + 1 if player_finish_pos is not None else None
+        
+        update_morale_after_race(
+            state, 
+            position=actual_position,  # 1-based position, None if DNF
+            dnf=player_dnf,
+            dnf_reason=dnf_reason,
+            expected_position=expected_position
+        )
+        
+        # Only check slow car morale if finished poorly (outside top 6)
+        # This avoids double-dipping on morale hits
+        if hasattr(state, 'car_speed') and (actual_position is None or actual_position > 6):
+            # Estimate field average (could be more sophisticated)
+            field_average = 50
+            update_morale_for_slow_car(state, state.car_speed, field_average)
+        
+        # Check for potential walkout after race
+        check_driver_walkout(state, time)
 
     # ✅ Contract tick ONLY after the race is finished
     started_race = (

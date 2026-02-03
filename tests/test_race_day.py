@@ -132,11 +132,11 @@ class TestCalcTravelCostUnknownCountries:
     def test_both_unknown_countries_warns(self):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            cost = calc_travel_cost("Germany", "Spain", 1948)
+            cost = calc_travel_cost("Japan", "Australia", 1948)
             assert cost == 70
             assert len(w) == 1
             # Both should be mentioned
-            assert "Germany" in str(w[0].message) or "Spain" in str(w[0].message)
+            assert "Japan" in str(w[0].message) or "Australia" in str(w[0].message)
 
     def test_unknown_country_still_gets_era_multiplier(self):
         with warnings.catch_warnings(record=True):

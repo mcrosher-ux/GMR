@@ -18,7 +18,22 @@ WEATHER_WET_CHANCE = 0.35
 WEEKS_PER_YEAR = 48
 SPONSOR_TRIGGER_RACE_WEEK = 20  # Vallone GP
 ENZONI_PRESTIGE_REQUIREMENT = 5.0  # minimum team prestige to unlock Enzoni customer engines
-CHAMPIONSHIP_ACTIVE = False
+# Championship starts in 1950
+# Use is_championship_year(year) to check
+CHAMPIONSHIP_ACTIVE = False  # Legacy - use is_championship_year() instead
+CHAMPIONSHIP_START_YEAR = 1951
+CONSTRUCTORS_CHAMPIONSHIP_START_YEAR = 1958  # Constructors come later
+
+# Developer mode - bypass demo ending to test long-term features
+DEV_BYPASS_DEMO = True
+
+def is_championship_year(year):
+    """Check if the World Championship is active in this year."""
+    return year >= CHAMPIONSHIP_START_YEAR
+
+def has_constructors_championship(year):
+    """Check if the Constructors Championship exists in this year."""
+    return year >= CONSTRUCTORS_CHAMPIONSHIP_START_YEAR
 TEST_DRIVERS_ENABLED = False  # Patch F: keep Test archetypes out of real seasons
 
 # --- Chassis stat limits ---
@@ -44,7 +59,8 @@ PRIZE_RULES = {
     "Little Autodromo": {"top3": [300, 200, 100], "finisher_bonus": 0},
     "Rogemont": {"top3": [300, 200, 100], "finisher_bonus": 0},
 
-    # Your new structure
+    # World Championship races
+    "Monaco GP": {"top3": [1200, 700, 400], "finisher_bonus": 150},  # THE prestige race
     "Marblethorpe GP": {"top3": [400, 250, 150], "finisher_bonus": 0},
     "Château-des-Prés GP": {"top3": [500, 250, 100], "finisher_bonus": 50},
     "Vallone GP": {"top3": [500, 250, 100], "finisher_bonus": 50},
