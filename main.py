@@ -867,7 +867,7 @@ def run_game():
                 # Skip all costs if hibernating
                 if state.garage_hibernating:
                     # Time still advances, but no costs
-                    time.advance()
+                    time.advance_week()
                     continue
 
                 # Base running costs (garage + staff)
