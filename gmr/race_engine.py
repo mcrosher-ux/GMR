@@ -29,10 +29,69 @@ from gmr.story import maybe_trigger_demo_finale
 from gmr.world_economy import is_home_race, get_home_crowd_bonus
 
 STAGE_LABELS = [
-    "Stage 1/3 — Opening Phase",
-    "Stage 2/3 — Mid-Race",
-    "Stage 3/3 — Final Push",
+    "Stage 1/5 — Opening Laps",
+    "Stage 2/5 — Early Race",
+    "Stage 3/5 — Mid-Race",
+    "Stage 4/5 — Late Race",
+    "Stage 5/5 — Final Push",
 ]
+
+# Stages where pit stops are allowed (indices 1-3, i.e., stages 2-4)
+PIT_WINDOW_STAGES = {1, 2, 3}
+
+# =============================================================================
+# TYRE WEAR SYSTEM
+# =============================================================================
+# Tyres degrade based on: push level, track roughness, car suspension
+# Higher wear = pace penalty + increased crash/blowout risk
+
+TYRE_WEAR_BASE = 18.0  # Base wear % per stage at balanced pace
+TYRE_WEAR_THRESHOLDS = {
+    "fresh": (0, 40),      # 0-40%: No penalty
+    "used": (40, 60),      # 40-60%: -1% pace
+    "worn": (60, 80),      # 60-80%: -3% pace, +10% crash risk
+    "critical": (80, 95),  # 80-95%: -6% pace, +25% crash risk
+    "danger": (95, 999),   # 95%+: -8% pace, +40% crash risk, blowout chance
+}
+
+def get_tyre_state(wear_pct):
+    """Get tyre state name based on wear percentage."""
+    for state, (low, high) in TYRE_WEAR_THRESHOLDS.items():
+        if low <= wear_pct < high:
+            return state
+    return "danger"
+
+def get_tyre_pace_penalty(wear_pct):
+    """Get pace multiplier based on tyre wear."""
+    state = get_tyre_state(wear_pct)
+    penalties = {
+        "fresh": 1.00,
+        "used": 0.99,
+        "worn": 0.97,
+        "critical": 0.94,
+        "danger": 0.92,
+    }
+    return penalties.get(state, 0.92)
+
+def get_tyre_crash_mult(wear_pct):
+    """Get crash risk multiplier based on tyre wear."""
+    state = get_tyre_state(wear_pct)
+    multipliers = {
+        "fresh": 1.0,
+        "used": 1.0,
+        "worn": 1.10,
+        "critical": 1.25,
+        "danger": 1.40,
+    }
+    return multipliers.get(state, 1.40)
+
+def format_tyre_bar(wear_pct):
+    """Format a visual tyre wear bar."""
+    remaining = max(0, 100 - wear_pct)
+    filled = int(remaining / 10)
+    empty = 10 - filled
+    state = get_tyre_state(wear_pct)
+    return f"[{'█' * filled}{'░' * empty}] {state.capitalize()}"
 
 
 # =============================================================================
@@ -85,6 +144,19 @@ class RaceSimulator:
         # Stage tracking
         self.current_stage_idx = 0
         self.stage_history = []  # List of stage results
+        
+        # =================================================================
+        # TYRE WEAR TRACKING - for ALL drivers (player and AI)
+        # =================================================================
+        self.tyre_wear = {}  # driver_name -> wear percentage (0-100+)
+        for d in self.current_positions:
+            self.tyre_wear[d.get("name")] = 0.0  # Everyone starts on fresh tyres
+        
+        # Track who has pitted
+        self.has_pitted = set()  # driver names who have made a pit stop
+        
+        # Track roughness affects tyre wear
+        self.track_roughness = track_profile.get("track_roughness", 1.0)
         
         # Pre-calculate which drivers will have incidents (but don't reveal timing yet)
         self.planned_incidents = self._precompute_incidents()
@@ -146,7 +218,7 @@ class RaceSimulator:
                 
                 incidents[d.get("name")] = {
                     "type": "engine",
-                    "stage_idx": random.randint(0, 2),
+                    "stage_idx": random.randint(0, len(STAGE_LABELS) - 1),
                     "breakdown": engine_factors,
                 }
             elif random.random() < crash_chance:
@@ -165,7 +237,7 @@ class RaceSimulator:
                 
                 incidents[d.get("name")] = {
                     "type": "crash", 
-                    "stage_idx": random.randint(0, 2),
+                    "stage_idx": random.randint(0, len(STAGE_LABELS) - 1),
                     "breakdown": crash_factors,
                 }
         
@@ -186,7 +258,139 @@ class RaceSimulator:
             standings.append((pos, d, gap))
         return standings
     
-    def simulate_stage(self, stage_idx, player_strategy_mult=1.0):
+    def calculate_tyre_wear(self, driver, push_mult=1.0):
+        """
+        Calculate tyre wear for a driver this stage.
+        
+        Factors:
+        - push_mult: 0.7 (conserve), 1.0 (balanced), 1.4 (push)
+        - track_roughness: from track profile
+        - suspension: higher = less wear
+        - wet conditions: less wear (rubber doesn't overheat)
+        """
+        driver_name = driver.get("name")
+        
+        # Get suspension stat (affects wear resistance)
+        if driver == self.game_state.player_driver:
+            # Player car uses their chassis
+            suspension = 5  # default
+            if self.game_state.current_chassis:
+                suspension = self.game_state.current_chassis.get("suspension", 5)
+        else:
+            # AI car - estimate from constructor
+            _, car_reliability = get_ai_car_stats(driver.get("constructor"))
+            suspension = 5 + (car_reliability - 5) * 0.5  # Higher reliability = better suspension
+        
+        # Base wear per stage
+        base_wear = TYRE_WEAR_BASE
+        
+        # Push level affects wear significantly
+        wear = base_wear * push_mult
+        
+        # Track roughness (1.0 = smooth, 1.3 = rough)
+        wear *= self.track_roughness
+        
+        # Suspension reduces wear (suspension 8 = 0.7x wear, suspension 3 = 1.1x)
+        suspension_factor = 1.3 - (suspension / 10.0) * 0.5
+        wear *= suspension_factor
+        
+        # Wet conditions = less tyre wear (rubber stays cooler)
+        if self.is_wet:
+            wear *= 0.7
+        
+        # Hot conditions = more wear
+        if self.is_hot:
+            wear *= 1.15
+        
+        return wear
+    
+    def apply_tyre_wear(self, driver, push_mult=1.0):
+        """Apply tyre wear to a driver and return the new wear level."""
+        driver_name = driver.get("name")
+        wear_increase = self.calculate_tyre_wear(driver, push_mult)
+        
+        current_wear = self.tyre_wear.get(driver_name, 0)
+        new_wear = current_wear + wear_increase
+        self.tyre_wear[driver_name] = new_wear
+        
+        return new_wear
+    
+    def pit_stop(self, driver):
+        """
+        Process a pit stop for a driver.
+        Resets tyres, adds time penalty (affects performance score).
+        Returns the time lost in seconds.
+        """
+        driver_name = driver.get("name")
+        
+        # Reset tyres
+        old_wear = self.tyre_wear.get(driver_name, 0)
+        self.tyre_wear[driver_name] = 0.0
+        self.has_pitted.add(driver_name)
+        
+        # Time lost (25-35 seconds depending on era and team)
+        base_pit_time = 30.0
+        
+        # Apply as performance penalty (roughly equivalent to losing positions)
+        # A 30-second stop is roughly -3 to -5 performance points
+        perf_penalty = base_pit_time / 8.0  # ~3.75 points
+        
+        self.driver_performance[driver_name] = self.driver_performance.get(driver_name, 0) - perf_penalty
+        
+        return base_pit_time, old_wear
+    
+    def check_tyre_blowout(self, driver):
+        """
+        Check if a driver has a tyre blowout.
+        Returns (blowout: bool, can_pit: bool)
+        - If blowout and can_pit (pit window), driver must pit
+        - If blowout and can't pit, driver DNFs
+        """
+        driver_name = driver.get("name")
+        wear = self.tyre_wear.get(driver_name, 0)
+        
+        if wear < 95:
+            return False, False
+        
+        # In danger zone - chance of blowout increases with wear over 95%
+        blowout_chance = 0.15 + (wear - 95) * 0.03  # 15% at 95%, higher after
+        
+        if random.random() < blowout_chance:
+            return True, self.current_stage_idx in PIT_WINDOW_STAGES
+        
+        return False, False
+    
+    def ai_should_pit(self, driver, stage_idx):
+        """
+        Decide if an AI driver should pit this stage.
+        AI pits when:
+        - Tyres are critical (80%+) and in pit window
+        - Or tyres are worn (60%+) and it's the last pit window stage
+        """
+        if stage_idx not in PIT_WINDOW_STAGES:
+            return False
+        
+        driver_name = driver.get("name")
+        if driver_name in self.has_pitted:
+            return False  # Already pitted
+        
+        wear = self.tyre_wear.get(driver_name, 0)
+        
+        # Critical tyres - pit now
+        if wear >= 80:
+            return True
+        
+        # Worn tyres on last pit window - pit now
+        if wear >= 60 and stage_idx == max(PIT_WINDOW_STAGES):
+            return True
+        
+        # Worn tyres - 30% chance to pit early (strategic variety)
+        if wear >= 55 and random.random() < 0.3:
+            return True
+        
+        return False
+
+    def simulate_stage(self, stage_idx, player_strategy_mult=1.0, player_pitting=False):
         """
         Simulate one stage of the race.
         Returns dict with: overtakes, incidents, new_standings, stage_label
@@ -440,6 +644,152 @@ class RaceSimulator:
                     
                 stage_result["player_dnf"] = player_incident
         
+        # =================================================================
+        # TYRE WEAR & PIT STOPS - Process for all remaining drivers
+        # =================================================================
+        stage_result["pit_stops"] = []
+        stage_result["tyre_incidents"] = []
+        
+        # Process pit stops and tyre wear for all drivers still in the race
+        drivers_to_pit = []
+        drivers_blown_out = []
+        
+        for d in list(self.current_positions):
+            name = d.get("name")
+            is_player = d == self.game_state.player_driver
+            
+            # Determine push level for this driver this stage
+            if is_player:
+                push_mult = player_strategy_mult
+            else:
+                # AI push level based on aggression and position
+                aggression = d.get("aggression", 5)
+                ai_push = 0.9 + (aggression / 10.0) * 0.3  # 0.9 to 1.2
+                push_mult = ai_push
+            
+            # Apply tyre wear for this stage
+            new_wear = self.apply_tyre_wear(d, push_mult)
+            
+            # Check for tyre blowout
+            blowout, can_pit = self.check_tyre_blowout(d)
+            if blowout:
+                if can_pit:
+                    # Forced emergency pit stop
+                    drivers_to_pit.append((d, "blowout"))
+                    stage_result["tyre_incidents"].append(
+                        f"💨 {name} suffers a tyre puncture and limps to the pits!"
+                    )
+                else:
+                    # DNF - can't pit outside pit window
+                    drivers_blown_out.append(d)
+                    stage_result["tyre_incidents"].append(
+                        f"💥 {name} has a tyre blowout and crashes out!"
+                    )
+                continue
+            
+            # Check if player is pitting (chosen in strategy)
+            if is_player and player_pitting and stage_idx in PIT_WINDOW_STAGES:
+                drivers_to_pit.append((d, "strategic"))
+            # Check if AI should pit
+            elif not is_player and self.ai_should_pit(d, stage_idx):
+                drivers_to_pit.append((d, "strategic"))
+        
+        # Process blowout DNFs
+        for d in drivers_blown_out:
+            name = d.get("name")
+            self.current_positions.remove(d)
+            self.dnf_drivers.append(d)
+            self.retire_reasons[name] = "crash"
+            self.active_drivers.discard(name)
+            stage_result["incidents"].append(f"{name} retires after tyre failure")
+            
+            if d == self.game_state.player_driver:
+                stage_result["player_dnf"] = "tyre_blowout"
+        
+        # Process pit stops
+        for d, pit_reason in drivers_to_pit:
+            name = d.get("name")
+            if d not in self.current_positions:
+                continue  # Already removed
+            
+            pit_time, old_wear = self.pit_stop(d)
+            
+            reason_text = "fresh tyres fitted" if pit_reason == "strategic" else "emergency stop after puncture"
+            stage_result["pit_stops"].append({
+                "driver": name,
+                "time_lost": pit_time,
+                "reason": pit_reason,
+                "old_wear": old_wear,
+            })
+            
+            if pit_reason == "blowout":
+                # Extra time lost for emergency stop
+                extra_penalty = 15.0 / 8.0  # ~2 extra performance points
+                self.driver_performance[name] = self.driver_performance.get(name, 0) - extra_penalty
+        
+        # =================================================================
+        # RACING INCIDENTS - Collisions between drivers (can send to pits)
+        # =================================================================
+        if stage_idx > 0 and random.random() < 0.12:  # 12% chance per stage after lap 1
+            active_list = [d for d in self.current_positions 
+                         if d.get("name") in self.active_drivers]
+            if len(active_list) >= 2:
+                # Pick two drivers who are close in positions
+                positions = list(enumerate(active_list))
+                # More likely to be adjacent drivers
+                idx1 = random.randint(0, len(active_list) - 2)
+                idx2 = idx1 + 1 if random.random() < 0.7 else random.randint(0, len(active_list) - 1)
+                if idx1 != idx2:
+                    d1 = active_list[idx1]
+                    d2 = active_list[idx2]
+                    
+                    # Aggression affects collision outcomes
+                    agg1 = d1.get("aggression", 5)
+                    agg2 = d2.get("aggression", 5)
+                    
+                    # Roll for what happens to each driver
+                    # Higher aggression = more likely to cause damage but also take damage
+                    outcomes = []
+                    for driver, agg in [(d1, agg1), (d2, agg2)]:
+                        roll = random.random()
+                        agg_factor = agg / 10.0
+                        
+                        if roll < 0.15 + agg_factor * 0.1:  # 15-25% DNF
+                            outcomes.append("dnf")
+                        elif roll < 0.35 + agg_factor * 0.1:  # 20-25% pit required
+                            outcomes.append("pit")
+                        else:  # Continue but with damage
+                            outcomes.append("continue")
+                    
+                    name1, name2 = d1.get("name"), d2.get("name")
+                    
+                    collision_msg = f"⚠️ Contact between {name1} and {name2}!"
+                    stage_result["incidents"].append(collision_msg)
+                    
+                    for driver, outcome in [(d1, outcomes[0]), (d2, outcomes[1])]:
+                        dname = driver.get("name")
+                        if outcome == "dnf":
+                            if driver in self.current_positions:
+                                self.current_positions.remove(driver)
+                                self.dnf_drivers.append(driver)
+                                self.retire_reasons[dname] = "crash"
+                                self.active_drivers.discard(dname)
+                                stage_result["incidents"].append(f"   └─ {dname} is OUT of the race!")
+                                if driver == self.game_state.player_driver:
+                                    stage_result["player_dnf"] = "collision"
+                        elif outcome == "pit":
+                            if stage_idx in PIT_WINDOW_STAGES and dname not in self.has_pitted:
+                                # Forced pit stop for damage
+                                self.tyre_wear[dname] = 0  # Gets new tyres anyway
+                                pit_time, _ = self.pit_stop(driver)
+                                stage_result["incidents"].append(f"   └─ {dname} pits for repairs (lost {pit_time:.0f}s)")
+                            else:
+                                stage_result["incidents"].append(f"   └─ {dname} continues with damage")
+                                # Performance penalty
+                                self.driver_performance[dname] = self.driver_performance.get(dname, 0) - 1.5
+                        else:
+                            stage_result["incidents"].append(f"   └─ {dname} continues")
+        
         # Calculate new performance for each remaining driver
         old_positions = list(self.current_positions)
         old_order = [d.get("name") for d in old_positions]
@@ -505,6 +855,13 @@ class RaceSimulator:
                 car_speed, _ = get_ai_car_stats(d.get("constructor"))
                 car_bonus = (car_speed - 5) * 0.025
                 stage_perf *= (1 + car_bonus)
+            
+            # =================================================================
+            # TYRE WEAR EFFECTS - Apply pace penalty based on tyre condition
+            # =================================================================
+            driver_wear = self.tyre_wear.get(name, 0)
+            tyre_pace_mult = get_tyre_pace_penalty(driver_wear)
+            stage_perf *= tyre_pace_mult
             
             # Update cumulative performance
             self.driver_performance[name] = self.driver_performance.get(name, 0) + stage_perf
@@ -634,20 +991,44 @@ def display_stage_results(state, race_name, stage_result, simulator):
     print(f"  {stage_label}")
     print(f"{'='*60}")
     
-    # Show incidents first
+    # Show tyre incidents (blowouts, punctures)
+    if stage_result.get("tyre_incidents"):
+        print("\n🛞 TYRE INCIDENTS:")
+        for incident in stage_result["tyre_incidents"]:
+            print(f"    {highlight_player(incident)}")
+    
+    # Show pit stops
+    if stage_result.get("pit_stops"):
+        print("\n🔧 PIT STOPS:")
+        for pit in stage_result["pit_stops"]:
+            driver = pit["driver"]
+            time_lost = pit["time_lost"]
+            reason = pit["reason"]
+            old_wear = pit.get("old_wear", 0)
+            
+            if reason == "blowout":
+                msg = f"{driver} - Emergency stop (puncture) - lost {time_lost:.0f}s"
+            else:
+                msg = f"{driver} - Fresh tyres (was {old_wear:.0f}% worn) - lost {time_lost:.0f}s"
+            print(f"    {highlight_player(msg)}")
+    
+    # Show incidents (crashes, engine failures)
     if stage_result["incidents"]:
         print("\n⚠️  INCIDENTS:")
         for incident in stage_result["incidents"]:
             print(f"    {highlight_player(incident)}")
-            state.news.append(f"INCIDENT ({race_name}): {incident}")
+            if incident.strip() and not incident.startswith("   "):
+                state.news.append(f"INCIDENT ({race_name}): {incident}")
     
     # Show overtakes
     if stage_result["overtakes"]:
         print("\n🏎️  POSITION CHANGES:")
-        for ot in stage_result["overtakes"]:
+        # Only show first 8 overtakes to avoid spam
+        for ot in stage_result["overtakes"][:8]:
             text = format_overtake_text(ot["overtaker"], ot["overtaken"], ot["new_position"])
             print(f"    {highlight_player(text)}")
-            # Overtakes not added to news - too spammy for post-race summary
+        if len(stage_result["overtakes"]) > 8:
+            print(f"    ... and {len(stage_result['overtakes']) - 8} more position changes")
     
     # Show current standings
     standings = simulator.get_current_standings()
@@ -658,10 +1039,23 @@ def display_stage_results(state, race_name, stage_result, simulator):
     
     for pos, d, gap in standings[:10]:  # Top 10
         name = d.get("name")
+        # Also show tyre status for top drivers
+        wear = simulator.tyre_wear.get(name, 0)
+        tyre_state = get_tyre_state(wear)
+        tyre_indicator = ""
+        if tyre_state == "danger":
+            tyre_indicator = " ⚠️"
+        elif tyre_state == "critical":
+            tyre_indicator = " 🔴"
+        elif tyre_state == "worn":
+            tyre_indicator = " 🟡"
+        
+        pitted = "◉" if name in simulator.has_pitted else "○"
+        
         if name == player_name:
-            print(f"    \x1b[32mP{pos}. {name} ({gap})\x1b[0m")
+            print(f"    \x1b[32mP{pos}. {name} ({gap}) {pitted}{tyre_indicator}\x1b[0m")
         else:
-            print(f"    P{pos}. {name} ({gap})")
+            print(f"    P{pos}. {name} ({gap}) {pitted}{tyre_indicator}")
     
     if len(standings) > 10:
         # Check if player is outside top 10
@@ -671,12 +1065,21 @@ def display_stage_results(state, race_name, stage_result, simulator):
                 player_pos = pos
                 break
         if player_pos and player_pos > 10:
+            wear = simulator.tyre_wear.get(player_name, 0)
+            tyre_state = get_tyre_state(wear)
+            tyre_indicator = ""
+            if tyre_state in ("danger", "critical"):
+                tyre_indicator = " ⚠️"
+            pitted = "◉" if player_name in simulator.has_pitted else "○"
             print(f"    ...")
-            print(f"    \x1b[32mP{player_pos}. {player_name}\x1b[0m")
+            print(f"    \x1b[32mP{player_pos}. {player_name} {pitted}{tyre_indicator}\x1b[0m")
+    
+    # Legend for tyre indicators
+    print(f"\n    (◉ = pitted, ○ = not pitted, 🔴 = critical tyres, 🟡 = worn tyres)")
 
 
-def get_player_stage_decision(stage_idx, is_wet, is_hot):
-    """Get player's strategy decision for the upcoming stage."""
+def get_player_stage_decision(stage_idx, is_wet, is_hot, simulator, state):
+    """Get player's strategy decision for the upcoming stage, including pit stop option."""
     
     stage_label = STAGE_LABELS[stage_idx] if stage_idx < len(STAGE_LABELS) else "Final Stage"
     
@@ -684,34 +1087,69 @@ def get_player_stage_decision(stage_idx, is_wet, is_hot):
     print(f"  STRATEGY DECISION — {stage_label}")
     print(f"{'─'*60}")
     
+    # Show tyre status
+    player = state.player_driver
+    if player:
+        player_name = player.get("name")
+        wear = simulator.tyre_wear.get(player_name, 0)
+        tyre_bar = format_tyre_bar(wear)
+        has_pitted = player_name in simulator.has_pitted
+        
+        print(f"\n  Tyres: {wear:.0f}% worn  {tyre_bar}")
+        if has_pitted:
+            print(f"  (Already pitted this race)")
+    
     # Context-aware options
     if is_wet:
-        print("\n  Conditions: WET — grip is unpredictable")
+        print("\n  Conditions: WET — grip is unpredictable, less tyre wear")
     elif is_hot:
         print("\n  Conditions: HOT — engine and tyres under stress")
     else:
         print("\n  Conditions: DRY — standard racing conditions")
     
+    # Tyre state warnings
+    if player:
+        state_name = get_tyre_state(wear)
+        if state_name == "danger":
+            print("\n  ⚠️  DANGER: Tyres are critically worn! High blowout risk!")
+        elif state_name == "critical":
+            print("\n  ⚠️  WARNING: Tyres are in critical condition!")
+        elif state_name == "worn":
+            print("\n  📉 Tyres are getting worn, losing grip...")
+    
     print("\n  Choose your approach:")
-    print("  1) PUSH — Attack hard, risk more (+5% pace, +15% incident risk)")
-    print("  2) BALANCED — Steady pace, normal risk")
-    print("  3) CONSERVE — Protect car, sacrifice pace (-5% pace, -20% incident risk)")
+    print("  1) PUSH — Attack hard (+5% pace, +40% tyre wear, +15% incident risk)")
+    print("  2) BALANCED — Steady pace, normal wear")
+    print("  3) CONSERVE — Protect tyres (-5% pace, -30% tyre wear, -20% incident risk)")
+    
+    # Pit stop option (only in pit window stages and if not already pitted)
+    can_pit = stage_idx in PIT_WINDOW_STAGES
+    already_pitted = player and player.get("name") in simulator.has_pitted
+    
+    if can_pit and not already_pitted:
+        print("  4) 🔧 PIT STOP — Fresh tyres, lose ~30 seconds")
+    elif can_pit and already_pitted:
+        print("  (Pit stop unavailable - already pitted)")
     
     while True:
-        choice = input("\n  Your choice (1/2/3): ").strip()
+        choice = input("\n  Your choice: ").strip()
         if choice == "1":
             return {
                 "label": "PUSH",
                 "performance_mult": 1.05,
                 "engine_fail_mult": 1.15,
                 "crash_mult": 1.15,
+                "wear_mult": 1.4,
+                "pitting": False,
             }
-        elif choice == "2":
+        elif choice == "2" or choice == "":
             return {
                 "label": "BALANCED", 
                 "performance_mult": 1.0,
                 "engine_fail_mult": 1.0,
                 "crash_mult": 1.0,
+                "wear_mult": 1.0,
+                "pitting": False,
             }
         elif choice == "3":
             return {
@@ -719,9 +1157,22 @@ def get_player_stage_decision(stage_idx, is_wet, is_hot):
                 "performance_mult": 0.95,
                 "engine_fail_mult": 0.85,
                 "crash_mult": 0.80,
+                "wear_mult": 0.7,
+                "pitting": False,
+            }
+        elif choice == "4" and can_pit and not already_pitted:
+            # Pitting - use balanced approach for the stage
+            return {
+                "label": "PIT STOP",
+                "performance_mult": 1.0,
+                "engine_fail_mult": 1.0,
+                "crash_mult": 1.0,
+                "wear_mult": 1.0,
+                "pitting": True,
             }
         else:
-            print("  Please enter 1, 2, or 3.")
+            valid = "1, 2, 3" + (", or 4" if can_pit and not already_pitted else "")
+            print(f"  Please enter {valid}.")
 
 
 def run_interactive_race_stages(simulator, state, race_name, is_wet, is_hot):
@@ -743,10 +1194,13 @@ def run_interactive_race_stages(simulator, state, race_name, is_wet, is_hot):
     
     for stage_idx in range(len(STAGE_LABELS)):
         if not player_out:
-            # Get player decision BEFORE simulating this stage
-            decision = get_player_stage_decision(stage_idx, is_wet, is_hot)
+            # Get player decision BEFORE simulating this stage (includes pit option)
+            decision = get_player_stage_decision(stage_idx, is_wet, is_hot, simulator, state)
             
-            print(f"\n  → Strategy set to: {decision['label']}")
+            if decision["pitting"]:
+                print(f"\n  → Pitting at the end of this stage for fresh tyres!")
+            else:
+                print(f"\n  → Strategy set to: {decision['label']}")
             
             # Track decisions for summary (informational only)
             cumulative_mods["performance_mult"] *= decision["performance_mult"]
@@ -757,8 +1211,12 @@ def run_interactive_race_stages(simulator, state, race_name, is_wet, is_hot):
             simulator.player_engine_mult = decision["engine_fail_mult"]
             simulator.player_crash_mult = decision["crash_mult"]
             
-            # Simulate the stage with player's chosen multiplier (applied per-stage)
-            stage_result = simulator.simulate_stage(stage_idx, decision["performance_mult"])
+            # Simulate the stage with player's chosen multiplier and pit decision
+            stage_result = simulator.simulate_stage(
+                stage_idx, 
+                player_strategy_mult=decision["performance_mult"],
+                player_pitting=decision["pitting"]
+            )
             
             if stage_result:
                 # Display what happened
@@ -776,7 +1234,7 @@ def run_interactive_race_stages(simulator, state, race_name, is_wet, is_hot):
                 input("\n  Press Enter to continue to next stage...")
         else:
             # Player is out - simulate remaining stages automatically
-            stage_result = simulator.simulate_stage(stage_idx, player_strategy_mult=1.0)
+            stage_result = simulator.simulate_stage(stage_idx, player_strategy_mult=1.0, player_pitting=False)
             
             if stage_result:
                 # Show abbreviated results for remaining stages

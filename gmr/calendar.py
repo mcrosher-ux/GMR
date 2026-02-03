@@ -144,8 +144,8 @@ def generate_calendar_for_year(year):
         cal[20] = "Vallone GP"              # sponsor trigger week
         cal[40] = "Ardennes Endurance GP"   # season finale
         
-        # Nürburgring equivalent from 1949 - mid-season epic
-        if year >= 1949:
+        # Schwarzwald Ring from 1950 - West Germany returns to motorsport
+        if year >= 1950:
             schwarzwald_pool = [w for w in range(22, 28) if w not in cal]
             if schwarzwald_pool:
                 cal[rng.choice(schwarzwald_pool)] = "Schwarzwald Ring"

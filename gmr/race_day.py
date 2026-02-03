@@ -413,45 +413,6 @@ def show_race_briefing(state, time, race_name):
     print(f"  Car speed number: {state.car_speed}, reliability: {state.car_reliability}")
 
 
-def choose_race_strategy(state):
-    """
-    Let the player choose how hard to run the car for this race.
-    This is the ONE source of truth:
-      - sets risk_mode (used in performance + DNF logic)
-      - sets risk_multiplier (used in wear logic)
-    """
-    print("\nRace pace for this event:")
-    print("1. Attack (faster, more wear, more DNFs)")
-    print("2. Neutral")
-    print("3. Nurse (slower, less wear, fewer DNFs)")
-
-    while True:
-        choice = input("> ").strip()
-
-        if choice == "1":
-            state.risk_mode = "attack"
-            state.risk_multiplier = 1.4
-            state.race_strategy = "attack"   # keep if anything else reads it later
-            print("You order an all-out attack. Lap time over mechanical sympathy.")
-            return
-
-        if choice in ("", "2"):
-            state.risk_mode = "neutral"
-            state.risk_multiplier = 1.0
-            state.race_strategy = "neutral"
-            print("You choose a balanced run.")
-            return
-
-        if choice == "3":
-            state.risk_mode = "nurse"
-            state.risk_multiplier = 0.7
-            state.race_strategy = "nurse"
-            print("You instruct the team to nurse the car and minimise risk.")
-            return
-
-        print("Please choose 1 (Attack), 2 (Neutral), or 3 (Nurse).")
-
-
 def handle_race_clash_choice(state, time, season_week, clash_races):
     """
     When multiple races occur on the same week, let the player choose which to enter.
@@ -802,6 +763,10 @@ def handle_race_week(state, time):
     # From here on: full race weekend
     # ------------------------------
 
+    # Ensure player has tyres for the race (no longer a purchased resource)
+    if getattr(state, 'tyre_sets', 0) < 5:
+        state.tyre_sets = 5
+
     # Deliver tyre sponsor tyres before the race
     from gmr.sponsorship import deliver_tyre_sponsor_tyres
     deliver_tyre_sponsor_tyres(state, time, race_name)
@@ -849,7 +814,10 @@ def handle_race_week(state, time):
             print("\nPost-qualifying garage options are not implemented yet.")
             print("You'll be able to tweak setup here in a later version.")
         elif choice in ("", "2"):
-            choose_race_strategy(state)
+            # Set default strategy values - player will choose pace each stage
+            state.risk_mode = "neutral"
+            state.risk_multiplier = 1.0
+            state.race_strategy = "neutral"
             run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot)
 
             input("\nPress Enter to see the race weekend summary...")

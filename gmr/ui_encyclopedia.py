@@ -164,6 +164,9 @@ def show_constructors_menu(state, time):
             # Don't show Scuderia Valdieri until they've debuted
             if name == "Scuderia Valdieri" and not getattr(state, "valdieri_active", False):
                 continue
+            # Don't show Silberkern-Stahl until they've debuted (1952)
+            if name == "Silberkern-Stahl" and not getattr(state, "silberkern_active", False):
+                continue
             if data.get("is_privateer"):
                 privateer_teams.append((name, data))
             else:
@@ -287,7 +290,8 @@ def show_constructor_detail(state, time, ctor_name):
             pace = d.get("pace", 5)
             consistency = d.get("consistency", 5)
             
-            fame_stars = "★" * fame + "☆" * (4 - fame)
+            fame_int = int(fame)
+            fame_stars = "★" * fame_int + "☆" * (4 - fame_int)
             print(f"    • {name} ({country}, age {age})")
             print(f"      Fame: {fame_stars}  Pace: {pace}  Consistency: {consistency}")
     else:

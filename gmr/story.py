@@ -142,6 +142,116 @@ def announce_championship_calendar(state, time):
         state.news.append("⚠️ Transatlantic races have limited European participation.")
 
 
+# =============================================================================
+# WEST GERMANY RETURNS TO MOTORSPORT (Start of 1950)
+# =============================================================================
+
+def maybe_announce_west_germany_return(state, time):
+    """
+    At the start of 1950, West Germany is readmitted to international motorsport.
+    German drivers and tracks become available.
+    """
+    if time.year != 1950:
+        return
+    
+    if getattr(state, 'seen_germany_return', False):
+        return
+    
+    state.seen_germany_return = True
+    
+    print("\n" + "=" * 70)
+    print("  🇩🇪 A NATION RETURNS")
+    print("=" * 70)
+    
+    print("""
+  Paris, January 1950.
+
+  The letter arrives from the FIA, addressed to all registered teams.
+
+  "Following extensive deliberation, the Fédération Internationale 
+  de l'Automobile announces that the Federal Republic of Germany 
+  (West Germany) has been readmitted to international motorsport 
+  competition, effective immediately.
+
+  German drivers may now participate in sanctioned events.
+  The Schwarzwald Ring has been approved for international racing.
+
+  The Commission notes that several German drivers have been training
+  in Switzerland these past years, awaiting this moment. They are
+  eager to prove themselves on the world stage.
+
+  The ghosts of the Silver Arrows stir once more..."
+""")
+    
+    input("\n  Press Enter to continue...")
+    
+    state.news.append("")
+    state.news.append("=" * 50)
+    state.news.append("🇩🇪 WEST GERMANY RETURNS TO MOTORSPORT")
+    state.news.append("=" * 50)
+    state.news.append("German drivers can now compete internationally.")
+    state.news.append("The Schwarzwald Ring opens for international racing.")
+    state.news.append("Several German drivers have emerged, trained in Swiss exile.")
+
+
+# =============================================================================
+# SILBERKERN-STAHL ANNOUNCEMENT (1952)
+# =============================================================================
+
+def maybe_announce_silberkern_stahl(state, time):
+    """
+    At the start of 1952, Silberkern-Stahl (proto-Mercedes) announces their 
+    return to Grand Prix racing. This is a major story event.
+    """
+    if time.year != 1952:
+        return
+    
+    if getattr(state, 'seen_silberkern_announcement', False):
+        return
+    
+    state.seen_silberkern_announcement = True
+    
+    print("\n" + "=" * 70)
+    print("  🏎️ THE SILVER ARROWS RETURN")
+    print("=" * 70)
+    
+    print("""
+  Stuttgart, December 1951.
+
+  The telegram arrives with the weight of history:
+
+  "SILBERKERN-STAHL AG ANNOUNCES FORMATION OF GRAND PRIX RACING TEAM.
+   FACTORY PROGRAMME TO COMMENCE 1952 SEASON.
+   GERMAN DRIVERS ONLY.
+   
+   THE SILVER ARROWS WILL FLY ONCE MORE."
+
+  In the paddock, the news spreads like wildfire. The pre-war German
+  teams dominated with their supercharged Silver Arrows. Now their
+  industrial successor emerges from the rubble of war.
+
+  Silberkern-Stahl. Silver Core Steel. A name that evokes both the
+  famous silver paint of old and the industrial might of the new
+  Germany rising from the ashes.
+
+  The Italians sharpen their resolve. The British steel themselves.
+  The privateers... wonder if there's any room left at all.
+
+  A new challenger approaches.
+""")
+    
+    input("\n  Press Enter to continue...")
+    
+    state.news.append("")
+    state.news.append("=" * 50)
+    state.news.append("🏎️ SILBERKERN-STAHL JOINS THE GRID")
+    state.news.append("=" * 50)
+    state.news.append("The German works team returns to Grand Prix racing!")
+    state.news.append("Known for engineering excellence and reliability.")
+    state.news.append("Only German drivers will be considered for their seats.")
+    state.news.append("The paddock braces for the Silver Arrows' return.")
+
+
 def inject_demo_prologue(state, time):
     """
     One-shot opening story beat for the demo.
