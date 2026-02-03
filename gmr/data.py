@@ -178,7 +178,7 @@ drivers = [
     },
     # More Italian drivers
     {
-        "name": "Giovanni Rossi", "constructor": "Independent",
+        "name": "Giovanni Morandi", "constructor": "Independent",
         "pace": 5, "consistency": 5,
         "aggression": 5, "mechanical_sympathy": 5, "wet_skill": 5,
         "fame": 0,
@@ -186,7 +186,7 @@ drivers = [
         "country": "Italy",
     },
     {
-        "name": "Marco Bianchi", "constructor": "Independent",
+        "name": "Marco Galli", "constructor": "Independent",
         "pace": 6, "consistency": 6,
         "aggression": 6, "mechanical_sympathy": 6, "wet_skill": 6,
         "fame": 1,
@@ -194,7 +194,7 @@ drivers = [
         "country": "Italy",
     },
     {
-        "name": "Luca Ferrari", "constructor": "Independent",
+        "name": "Luca Bernardi", "constructor": "Independent",
         "pace": 4, "consistency": 6,
         "aggression": 4, "mechanical_sympathy": 6, "wet_skill": 7,
         "fame": 0,
@@ -319,7 +319,7 @@ drivers = [
     # === Gentleman Drivers / Privateers ===
     # These wealthy amateurs appear at select races with their own privately-entered cars
     {
-        "name": "Prince Sagat", "constructor": "Privateer Valdieri",
+        "name": "Prince Sagat", "constructor": "Independent",
         "pace": 4, "consistency": 5,  # meh pace, reasonable consistency
         "aggression": 3, "mechanical_sympathy": 8, "wet_skill": 6,  # great with machinery, ok in wet, cautious
         "fame": 2,  # royal fame
@@ -355,18 +355,6 @@ constructors = {
         "prestige": 12.0,           # strong team but below Enzoni
         "max_drivers": 2,           # standard two-car team
         "replenishes": True,        # AI team will sign replacements
-    },
-    # Privateer Valdieri: Prince Sagat's private entry using customer Valdieri equipment
-    "Privateer Valdieri": {
-        "country": "Thailand",
-        "engine_id": "valdieri_works_v12",  # bought a Valdieri engine
-        "chassis_id": "valdieri_works_spaceframe",  # bought a Valdieri chassis
-        "dev_bonus": 0.0,  # no factory development
-        "dev_attempt_chance": 0.0,  # privateers don't develop
-        "is_privateer": True,
-        "prestige": 5.0,            # modest prestige from royal backing
-        "max_drivers": 1,           # gentleman driver only
-        "replenishes": False,       # won't sign others
     },
     "Independent": {
         "speed": 5,
@@ -577,6 +565,33 @@ tracks = {
         "safety_rating": 3,         # Street circuit
         "facilities_rating": 5,     # City provides support
         "prestige_rating": 6,       # Growing reputation
+    },
+
+    "Monaco GP": {
+        "country": "Monaco",
+        "flavor": "The jewel of motorsport. A ribbon of tarmac carved through the principality's streets, where millionaires watch from yacht decks and drivers thread their machines past casino, tunnel, and harbor at impossible speeds. One mistake means the barriers. No room for error, no room for the timid. Victory at Monaco elevates a driver to legend.",
+        "engine_danger": 0.90,          # Slow speeds spare engines
+        "crash_danger": 1.20,           # Barriers everywhere
+        "pace_weight": 0.85,            # Less about raw speed
+        "consistency_weight": 1.25,     # Precision is everything
+        "wet_chance": 0.20,
+        "base_hot_chance": 0.40,
+        "heat_intensity": 1.12,
+        "weight_pace_importance": 1.4,   # Light nimble cars excel
+        "weight_crash_importance": 1.3,
+        "length_km": 3.18,
+        "race_distance_km": 318.0,       # 100 laps
+        "fame_mult": 2.0,               # THE prestige race
+        "xp_mult": 1.8,
+        "fame_cap": 5.0,
+        "suspension_importance": 1.40,   # Bumpy streets
+        "appearance_base": 120,
+        "appearance_prestige_mult": 30,
+        "grid_size": 20,                 # Small grid, tight streets
+        # Track evolution ratings
+        "safety_rating": 2,              # Barriers and harbor = death
+        "facilities_rating": 8,          # Principality spares no expense
+        "prestige_rating": 10,           # The ultimate prize
     },
 
     # ==========================================================================

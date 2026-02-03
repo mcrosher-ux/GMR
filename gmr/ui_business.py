@@ -1,11 +1,14 @@
 # gmr/business.py
 import random
 
-from gmr.constants import CHAMPIONSHIP_ACTIVE
+from gmr.constants import is_championship_year
 
 def show_business(state, time):
     while True:
         print("\n=== Business & Contracts ===")
+        
+        # Check if we're in a championship year
+        champ_active = is_championship_year(time.year)
 
         # PR / networking availability
         if can_do_pr_trip(state, time):
@@ -58,7 +61,7 @@ def show_business(state, time):
                 print("  Terms:")
                 print("    • £2000 signing bonus (already paid)")
                 print(f"    • £{appearance_now} per race started")
-                if CHAMPIONSHIP_ACTIVE:
+                if champ_active:
                     print(f"    • £{point_rate_now} per championship point")
                 else:
                     print("    • (No championship points in this era)")

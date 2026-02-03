@@ -1,7 +1,8 @@
 # gmr/world_logic.py
 import random
 from gmr.data import drivers, constructors
-from gmr.constants import clamp_chassis_aero
+from gmr.constants import clamp_chassis_aero, is_championship_year
+from gmr.calendar import is_transatlantic_race
 
 
 DRIVER_FIRST_NAMES = [
@@ -34,9 +35,9 @@ DRIVER_FIRST_NAMES = [
 
 DRIVER_LAST_NAMES = [
     # Italian
-    "Bianci", "Rossi", "Ferrari", "Bianchi", "Ricci", "Verdi",
-    "Neri", "Esposito", "Gallo", "Colombo", "Romano", "Conti",
-    "De Luca", "Moretti", "Marini", "Serafini", "Barbieri", "Valenti",
+    "Ricci", "Verdi", "Neri", "Esposito", "Gallo", "Colombo",
+    "Romano", "Conti", "De Luca", "Moretti", "Marini", "Serafini",
+    "Barbieri", "Valenti", "Benedetti", "Santini", "Pellegrini",
     # French
     "Dubois", "Dupont", "Bernard", "Martin", "Laurent", "Leclerc",
     "Arnoux", "Morel", "Lefèvre", "Lambert", "Renaud", "Girard",
@@ -186,13 +187,23 @@ def driver_enters_event(driver, race_name, track_profile, state=None, time=None)
     """
     Decide if a driver enters an event.
 
+    CHAMPIONSHIP RULES (from 1951):
+    - All constructors attend every championship race (except transatlantic)
+    - Only fame 1+ Americans join European championship events
+    - Transatlantic races have special restrictions
+    
+    LOCAL AMERICAN RACES:
+    - Copper State Circuit: Small desert track, American drivers only
+    
     Patch C: Enzoni only do Italian races + Vallone + Ardennes (demo logic).
     Patch F: 'Test' drivers are debug-only and do not enter real races unless enabled.
     Patch G: Gentleman drivers have selective entries (big races + random medium ones).
     """
-    from gmr.calendar import BIG_RACES, MEDIUM_RACES
+    from gmr.calendar import BIG_RACES, MEDIUM_RACES, is_championship_race, is_transatlantic_race
+    from gmr.constants import is_championship_year
 
     ctor = driver.get("constructor")
+    year = time.year if time else 1948
 
     # Patch F: test archetypes are for dev only
     if ctor == "Test":
@@ -203,6 +214,68 @@ def driver_enters_event(driver, race_name, track_profile, state=None, time=None)
     if appears_from and time:
         if time.year < appears_from:
             return False
+
+    # ─────────────────────────────────────────────────────────────────
+    # LOCAL AMERICAN RACES - Americans only
+    # Copper State Circuit is a small dusty desert track where local
+    # American racers compete. Europeans don't bother with the trip.
+    # ─────────────────────────────────────────────────────────────────
+    if race_name == "Copper State Circuit":
+        driver_nat = driver.get("country", "UK")
+        if driver_nat != "USA":
+            return False
+        # American drivers enter normally (continue to other checks)
+
+    # ─────────────────────────────────────────────────────────────────
+    # WORLD CHAMPIONSHIP RACE LOGIC (from 1951)
+    # All constructors attend championship races - it's mandatory!
+    # ─────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────
+    if is_championship_year(year) and is_championship_race(race_name, year):
+        driver_nat = driver.get("country", "UK")
+        fame = driver.get("fame", 0)
+        
+        # Handle transatlantic races (Union Speedway)
+        if is_transatlantic_race(race_name, year):
+            # Americans always attend US championship races
+            if driver_nat == "USA":
+                return True
+            
+            # Europeans: Only well-funded operations make the crossing
+            # Independents almost never go
+            if ctor == "Independent":
+                if fame < 4:
+                    return False
+                # Even famous independents only 20% chance
+                seed = hash((driver.get("name", ""), race_name, year))
+                rng = random.Random(seed)
+                return rng.random() < 0.2
+            
+            # Works teams send their star driver only
+            team_prestige = constructors.get(ctor, {}).get("prestige", 5)
+            if team_prestige < 8:
+                return False
+            
+            # Only the most famous driver from each top team
+            team_drivers = [d for d in drivers if d.get("constructor") == ctor]
+            max_fame_in_team = max((d.get("fame", 0) for d in team_drivers), default=0)
+            if fame < max_fame_in_team:
+                return False
+            
+            # 60% chance even for stars
+            seed = hash((ctor, driver.get("name", ""), race_name, year))
+            rng = random.Random(seed)
+            return rng.random() < 0.6
+        
+        # European championship races - mandatory for all constructors!
+        # But Americans need fame 1+ to make the trip to Europe
+        if driver_nat == "USA":
+            if fame < 1:
+                return False
+        
+        # All constructors MUST attend European championship races
+        # This is the World Championship - everyone wants to be there!
+        return True
 
     # Gentleman drivers with selective entries (e.g., Prince Sagat)
     if driver.get("selective_entries") and driver.get("gentleman_driver"):
@@ -253,14 +326,39 @@ def driver_enters_event(driver, race_name, track_profile, state=None, time=None)
 
 
 
-    # Special rule for Union Speedway: only famous/well-backed internationals can afford the trip
-    if race_name == "Union Speedway":
+    # ─────────────────────────────────────────────────────────────────
+    # NON-CHAMPIONSHIP TRANSATLANTIC TRAVEL (pre-1951 or non-champ races)
+    # European drivers rarely travel to USA races due to shipping costs.
+    # ─────────────────────────────────────────────────────────────────
+    from gmr.calendar import is_transatlantic_race
+    if race_name == "Union Speedway":  # Check for any USA race
         driver_nat = driver.get("country", "UK")
-        if driver_nat != "USA":
-            fame = driver.get("fame", 0)
-            # Only enter if fame 2+ (well-known) or backed by major teams
-            if fame < 2 and ctor == "Independent":
-                return False
+        fame = driver.get("fame", 0)
+        
+        # Americans always enter US races
+        if driver_nat == "USA":
+            pass  # Always enters
+        else:
+            # Pre-championship or non-champ USA races - very few Europeans go
+            if ctor == "Independent":
+                if fame < 4:
+                    return False
+                seed = hash((driver.get("name", ""), race_name, year))
+                rng = random.Random(seed)
+                if rng.random() > 0.2:
+                    return False
+            else:
+                team_prestige = constructors.get(ctor, {}).get("prestige", 5)
+                if team_prestige < 8:
+                    return False
+                team_drivers = [d for d in drivers if d.get("constructor") == ctor]
+                max_fame_in_team = max((d.get("fame", 0) for d in team_drivers), default=0)
+                if fame < max_fame_in_team:
+                    return False
+                seed = hash((ctor, driver.get("name", ""), race_name, year))
+                rng = random.Random(seed)
+                if rng.random() > 0.6:
+                    return False
 
     # Everyone else: always enters for now (subject to Enzoni rules below)
     if ctor != "Enzoni":

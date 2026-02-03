@@ -4,6 +4,144 @@ from gmr.world_logic import calculate_car_speed
 from gmr.data import drivers
 import random
 
+
+# =============================================================================
+# FIA WORLD CHAMPIONSHIP ANNOUNCEMENT (End of 1950 / Start of 1951)
+# =============================================================================
+
+def maybe_announce_world_championship(state, time):
+    """
+    At the start of 1951, the FIA announces the first World Championship.
+    This is a scripted story event that sets up the 1951 season.
+    Triggers when entering 1951 (after demo finishes).
+    """
+    # Only trigger at start of 1951 (when time.year becomes 1951)
+    if time.year != 1951:
+        return
+    
+    # Only trigger once
+    if getattr(state, 'seen_championship_announcement', False):
+        return
+    
+    state.seen_championship_announcement = True
+    
+    # Clear news for dramatic effect
+    team_name = state.player_constructor or "your team"
+    
+    print("\n" + "=" * 70)
+    print("  📜 A HISTORIC ANNOUNCEMENT")
+    print("=" * 70)
+    
+    print("""
+  Paris, December 1950.
+
+  The letter arrives bearing the seal of the Fédération Internationale
+  de l'Automobile. Your hands tremble slightly as you break the wax.
+
+  "To all registered constructors and entrants,
+
+   The FIA is pleased to announce the creation of the WORLD CHAMPIONSHIP
+   OF DRIVERS, to commence with the 1951 racing season.
+
+   Seven races shall determine the champion:
+   
+   • BRITISH GRAND PRIX - Marblethorpe
+   • MONACO GRAND PRIX - The streets of Monte Carlo  
+   • FRENCH GRAND PRIX - Château-des-Prés
+   • UNION 500 - Union Speedway, USA
+   • GERMAN GRAND PRIX - Schwarzwald Ring
+   • BELGIAN GRAND PRIX - Ardennes Endurance Circuit
+   • ITALIAN GRAND PRIX - Vallone
+   
+   Points shall be awarded: 8-6-4-3-2-1 for the first six finishers.
+   The driver with most points at season's end shall be crowned
+   WORLD CHAMPION.
+
+   Note regarding the Union 500: Owing to the considerable expense of
+   transatlantic passage, the Commission understands that many European
+   entrants may be unable to participate. Only well-financed operations
+   are expected to make the crossing.
+
+   The age of the gentleman racer draws to a close.
+   The era of the World Champion begins.
+
+   Yours faithfully,
+   The FIA Sporting Commission"
+""")
+    
+    input("\n  Press Enter to continue...")
+    
+    print(f"""
+  You set down the letter. {team_name}'s cramped workshop feels smaller
+  than ever. Outside, winter rain patters against grimy windows.
+
+  A World Championship. Points. A title.
+  
+  Everything changes now. The privateers, the gentlemen racers, the
+  weekend warriors - they'll be measured against the might of Enzoni,
+  the precision of the works teams, the ambition of nations.
+
+  Some see opportunity. Others see the beginning of the end.
+
+  Which will it be for {team_name}?
+""")
+    
+    input("  Press Enter to begin the 1951 season...")
+    
+    # Add to news
+    state.news.append("=" * 50)
+    state.news.append("🏆 THE FIA WORLD CHAMPIONSHIP BEGINS IN 1951")
+    state.news.append("=" * 50)
+    state.news.append("Seven races will decide the first World Champion.")
+    state.news.append("Points: 8-6-4-3-2-1 for top six finishers.")
+    state.news.append("")
+    state.news.append("Championship Calendar:")
+    state.news.append("  • British GP (Marblethorpe)")
+    state.news.append("  • Monaco GP (Monte Carlo) ✨ NEW VENUE")
+    state.news.append("  • French GP (Château-des-Prés)")
+    state.news.append("  • Union 500 (USA) 🚢 TRANSATLANTIC")
+    state.news.append("  • German GP (Schwarzwald Ring)")
+    state.news.append("  • Belgian GP (Ardennes)")
+    state.news.append("  • Italian GP (Vallone)")
+    state.news.append("")
+    state.news.append("⚠️ The Union 500 requires expensive transatlantic travel.")
+    state.news.append("   Most privateers cannot afford to participate.")
+
+
+def announce_championship_calendar(state, time):
+    """
+    Announce the World Championship calendar at the start of each championship year.
+    Called from main.py at the start of each year from 1951 onwards.
+    """
+    from gmr.constants import is_championship_year
+    from gmr.calendar import get_world_championship_races
+    
+    if not is_championship_year(time.year):
+        return
+    
+    # Don't double-announce in 1951 (already handled by maybe_announce_world_championship)
+    if time.year == 1951 and getattr(state, 'seen_championship_announcement', False):
+        return
+    
+    champ_races = get_world_championship_races(time.year)
+    
+    state.news.append("")
+    state.news.append("=" * 50)
+    state.news.append(f"🏆 {time.year} FIA WORLD CHAMPIONSHIP CALENDAR")
+    state.news.append("=" * 50)
+    state.news.append("")
+    
+    for race_name, week, is_transatlantic in champ_races:
+        marker = " 🚢" if is_transatlantic else ""
+        state.news.append(f"  • Week {week}: {race_name}{marker}")
+    
+    state.news.append("")
+    state.news.append("Points: 8-6-4-3-2-1 for top six finishers.")
+    state.news.append("All constructors are expected to attend championship races!")
+    if any(t[2] for t in champ_races):  # If any transatlantic races
+        state.news.append("⚠️ Transatlantic races have limited European participation.")
+
+
 def inject_demo_prologue(state, time):
     """
     One-shot opening story beat for the demo.
@@ -102,6 +240,8 @@ def maybe_trigger_demo_finale(state, time, race_name):
     if getattr(state, "demo_driver_death_done", False) or getattr(state, "demo_complete", False):
         return None
 
+    from gmr.constants import DEV_BYPASS_DEMO
+
     # Only trigger at Ardennes in 1950
     if time.year != 1950:
         return None
@@ -136,13 +276,20 @@ def maybe_trigger_demo_finale(state, time, race_name):
         "Your era was the age before rules. Whatever comes next will be built on "
         "the courage and the blood of drivers like this."
     )
-    state.news.append(
-        "DEMO COMPLETE – You have survived the chaos years leading up to organised Grand Prix racing."
-    )
-
-    # Mark as done and tell main loop to stop after showing the news
+    
+    # Mark death as done
     state.demo_driver_death_done = True
-    state.demo_complete = True
+    
+    # Only end the demo if bypass is off
+    if not DEV_BYPASS_DEMO:
+        state.news.append(
+            "DEMO COMPLETE – You have survived the chaos years leading up to organised Grand Prix racing."
+        )
+        state.demo_complete = True
+    else:
+        state.news.append(
+            "The racing world mourns, but the calendar moves on. The FIA will soon announce their response."
+        )
 
     return victim
 

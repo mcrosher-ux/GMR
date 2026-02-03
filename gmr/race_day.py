@@ -96,7 +96,7 @@ def calc_travel_cost(home_country: str, event_country: str, year: int) -> int:
 
     # --- Europe split ---
     # “Near” is basically Channel-crossing / neighbouring countries.
-    near_europe = {"UK", "France", "Belgium", "Switzerland"}
+    near_europe = {"UK", "France", "Belgium", "Switzerland", "Germany", "Monaco", "Netherlands", "Spain"}
     far_europe = {"Italy"}
 
     # If either end is Italy, treat it as the longer-haul European trip
@@ -210,8 +210,19 @@ def show_race_preview(state, time, race_name, track_profile):
     Display race costs and potential earnings BEFORE the enter/skip decision.
     Helps player make informed choice about racing this weekend.
     """
+    from gmr.calendar import is_championship_race, is_transatlantic_race
+    from gmr.constants import is_championship_year, POINTS_TABLE
+    
     print("\n=== Race Weekend Preview ===")
     print(f"{race_name}")
+    
+    # Championship indicator
+    if is_championship_year(time.year) and is_championship_race(race_name, time.year):
+        print("🏆 FIA WORLD CHAMPIONSHIP ROUND 🏆")
+        print(f"Points: {POINTS_TABLE[0]}-{POINTS_TABLE[1]}-{POINTS_TABLE[2]}-{POINTS_TABLE[3]}-{POINTS_TABLE[4]}-{POINTS_TABLE[5]} for top six")
+        if is_transatlantic_race(race_name, time.year):
+            print("🚢 TRANSATLANTIC EVENT - Limited European entries")
+    
     print("----------------------------")
     
     country = track_profile.get("country", "Unknown")

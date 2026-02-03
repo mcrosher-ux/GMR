@@ -1,9 +1,27 @@
 # gmr/calendar.py
 
 from gmr.core_time import get_season_week, GameTime
-from gmr.constants import MONTHS
+from gmr.constants import MONTHS, is_championship_year
 
 import random
+
+# =============================================================================
+# WORLD CHAMPIONSHIP CALENDAR (from 1951)
+# =============================================================================
+# The FIA World Championship has a fixed calendar of prestigious races.
+# Not all drivers attend all races - transatlantic travel is expensive!
+
+# 1951 inaugural World Championship calendar
+WORLD_CHAMPIONSHIP_CALENDAR_1951 = [
+    # (race_name, week, is_transatlantic)
+    ("Marblethorpe GP", 12, False),           # British GP - UK
+    ("Monaco GP", 16, False),                  # Monaco GP - glamour event  
+    ("Château-des-Prés GP", 20, False),        # French GP
+    ("Union Speedway", 24, True),              # USA - transatlantic!
+    ("Schwarzwald Ring", 28, False),           # German GP
+    ("Ardennes Endurance GP", 32, False),      # Belgian GP - endurance test
+    ("Vallone GP", 36, False),                 # Italian GP - season finale
+]
 
 # Track tiers for clash rules and championship eligibility
 # Grade A: World Championship caliber - cannot clash with anything
@@ -17,6 +35,7 @@ BIG_RACES = [
     "Autódromo General San Martín", 
     "Union Speedway",
     "Schwarzwald Ring",
+    "Monaco GP",
 ]
 
 # Medium races (Grade B international events)
@@ -39,6 +58,38 @@ SMALL_RACES = [
 ]
 
 
+def get_world_championship_races(year):
+    """
+    Get the World Championship calendar for a given year.
+    Returns list of (race_name, week, is_transatlantic) tuples.
+    Returns empty list if no championship that year.
+    """
+    if not is_championship_year(year):
+        return []
+    
+    # For now, use the 1951 calendar as base
+    # Future years could evolve this
+    if year >= 1951:
+        return WORLD_CHAMPIONSHIP_CALENDAR_1951
+    
+    return []
+
+
+def is_championship_race(race_name, year):
+    """Check if a race counts for World Championship points."""
+    champ_races = get_world_championship_races(year)
+    return any(r[0] == race_name for r in champ_races)
+
+
+def is_transatlantic_race(race_name, year):
+    """Check if a race requires expensive transatlantic travel."""
+    champ_races = get_world_championship_races(year)
+    for r in champ_races:
+        if r[0] == race_name:
+            return r[2]  # is_transatlantic flag
+    return False
+
+
 def get_race_tier(race_name):
     """Get the tier of a race for clash calculations."""
     if race_name in BIG_RACES:
@@ -54,12 +105,13 @@ def generate_calendar_for_year(year):
     Build the season calendar for a given year.
 
     Track availability by year:
-    - 1947: European season only (UK, France, Italy, Switzerland, Belgium)
-    - 1948: Americas circuits added (Argentina, Brazil, USA regional)
-    - 1949: Germany (Nürburgring) joins
-    - 1950: USA (Union Speedway), Spain (Pedralbes) join
-    - 1951: South Africa (East London) joins  
-    - 1952: Morocco (Aïn-Diab), Japan (Suzuka) join
+    - 1947-1950: Pre-championship era (regional races, no points)
+    - 1951: WORLD CHAMPIONSHIP BEGINS - FIA formalizes the calendar
+    - Monaco GP joins the calendar
+    - 1952+: Calendar expands gradually
+    
+    From 1951, the World Championship races are fixed. Other races fill
+    the calendar around them.
     
     Clash rules:
     - Big races: Never clash
@@ -78,33 +130,35 @@ def generate_calendar_for_year(year):
     cal = {}
     clashes = {}  # week -> [race1, race2]
 
-    # ---- Anchors (fixed major events) ----
-    cal[20] = "Vallone GP"              # sponsor trigger week
-    cal[40] = "Ardennes Endurance GP"   # season finale
-
-    # Union Speedway from 1950
-    if year >= 1950:
-        cal[25] = "Union Speedway"
-    
-    # Nürburgring equivalent from 1949 - mid-season epic
-    if year >= 1949:
-        schwarzwald_pool = [w for w in range(22, 28) if w not in cal]
-        if schwarzwald_pool:
-            cal[rng.choice(schwarzwald_pool)] = "Schwarzwald Ring"
+    # ==========================================================================
+    # WORLD CHAMPIONSHIP ERA (1950+)
+    # ==========================================================================
+    if is_championship_year(year):
+        # Place all World Championship races at their fixed weeks
+        champ_races = get_world_championship_races(year)
+        for race_name, week, _ in champ_races:
+            cal[week] = race_name
+    else:
+        # Pre-championship era: use original logic
+        # ---- Anchors (fixed major events) ----
+        cal[20] = "Vallone GP"              # sponsor trigger week
+        cal[40] = "Ardennes Endurance GP"   # season finale
+        
+        # Nürburgring equivalent from 1949 - mid-season epic
+        if year >= 1949:
+            schwarzwald_pool = [w for w in range(22, 28) if w not in cal]
+            if schwarzwald_pool:
+                cal[rng.choice(schwarzwald_pool)] = "Schwarzwald Ring"
 
     # Autódromo General San Martín from 1948 (Southern hemisphere = early year)
-    if year >= 1948:
+    # Non-championship race in 1950
+    if year >= 1948 and year < 1950:
         buenos_aires_pool = [w for w in range(10, 15) if w not in cal]
         if buenos_aires_pool:
             cal[rng.choice(buenos_aires_pool)] = "Autódromo General San Martín"
-
-    # Second Vallone in late summer (Italian GP tradition)
-    vallone2_pool = [w for w in range(29, 37) if w not in cal]
-    if vallone2_pool:
-        cal[rng.choice(vallone2_pool)] = "Vallone GP"
     
-    # Spanish GP from 1950
-    if year >= 1950:
+    # Spanish GP from 1951 onwards (not in original 1950 championship)
+    if year >= 1951:
         spain_pool = [w for w in range(16, 22) if w not in cal]
         if spain_pool:
             cal[rng.choice(spain_pool)] = "Circuito de las Palmas"

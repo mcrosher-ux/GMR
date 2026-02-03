@@ -14,6 +14,388 @@ from gmr.world_logic import (
 STARTING_DRIVERS = deepcopy(drivers)
 
 
+# =============================================================================
+# DRIVER MORALE SYSTEM
+# =============================================================================
+# Morale is tracked per-driver when they're contracted to the player.
+# Range: 0-100 (starts at 60 "cautiously optimistic")
+# 
+# HIGH MORALE (70+): Driver is happy, likely to re-sign, resists poaching
+# NEUTRAL (40-70): Driver is content, normal behavior
+# LOW MORALE (20-40): Driver is unhappy, unlikely to re-sign, vulnerable to poaching
+# CRITICAL (<20): Driver may walk out, will definitely not re-sign
+#
+# Factors that INCREASE morale:
+# - Race wins (+8), Podiums (+4), Points finishes (+2)
+# - Car performing above expectations
+# - Pay rises
+# - Team prestige increasing
+# - Blocking a poach attempt (if driver chose to stay)
+#
+# Factors that DECREASE morale:
+# - DNFs, especially mechanical failures (-5 to -10)
+# - Slow car (finishing below driver's expected pace) (-3 per race)
+# - Being refused a move to bigger team (-15 to -25)
+# - Low pay relative to performance
+# - Contract running low without extension discussion
+# - Team in financial trouble
+# - Teammate getting preferential treatment (future)
+
+MORALE_DESCRIPTIONS = {
+    90: ("Ecstatic", "🌟", "absolutely thriving"),
+    75: ("Happy", "😊", "very satisfied"),
+    60: ("Content", "😐", "reasonably content"),
+    45: ("Uncertain", "😕", "having doubts"),
+    30: ("Unhappy", "😞", "clearly frustrated"),
+    15: ("Furious", "😠", "ready to walk"),
+    0: ("Mutinous", "💢", "refusing to cooperate"),
+}
+
+
+def get_driver_morale(state):
+    """Get the current morale of the player's driver. Returns 0-100."""
+    if not state.player_driver:
+        return 0
+    return getattr(state, "driver_morale", 60)
+
+
+def set_driver_morale(state, value):
+    """Set driver morale, clamped to 0-100."""
+    state.driver_morale = max(0, min(100, value))
+
+
+def adjust_driver_morale(state, delta, reason="", silent=False):
+    """
+    Adjust driver morale by delta amount.
+    Positive delta = happier, negative = unhappier.
+    Returns the new morale value.
+    """
+    if not state.player_driver:
+        return 0
+    
+    old_morale = get_driver_morale(state)
+    new_morale = max(0, min(100, old_morale + delta))
+    state.driver_morale = new_morale
+    
+    driver_name = state.player_driver.get("name", "Your driver")
+    
+    # Only report significant changes
+    if not silent and abs(delta) >= 3:
+        if delta > 0:
+            state.news.append(f"📈 {driver_name}'s morale improves: {reason} ({int(old_morale)} → {int(new_morale)})")
+        else:
+            state.news.append(f"📉 {driver_name}'s morale drops: {reason} ({int(old_morale)} → {int(new_morale)})")
+    
+    return new_morale
+
+
+def describe_morale(morale):
+    """Get a description tuple (label, emoji, flavor_text) for a morale value."""
+    for threshold, desc in sorted(MORALE_DESCRIPTIONS.items(), reverse=True):
+        if morale >= threshold:
+            return desc
+    return MORALE_DESCRIPTIONS[0]
+
+
+def describe_morale_short(morale):
+    """Get just the label for a morale value."""
+    return describe_morale(morale)[0]
+
+
+def init_driver_morale(state):
+    """Initialize morale when signing a new driver."""
+    if not state.player_driver:
+        return
+    
+    # Start at 60 (cautiously optimistic) modified by team prestige
+    base_morale = 60
+    prestige = getattr(state, "prestige", 1.0)
+    
+    # Higher prestige teams start with happier drivers
+    prestige_bonus = min(15, prestige * 1.5)
+    
+    # Famous drivers are harder to please initially
+    fame = state.player_driver.get("fame", 0)
+    fame_penalty = fame * 2
+    
+    initial_morale = base_morale + prestige_bonus - fame_penalty
+    state.driver_morale = max(30, min(80, initial_morale))
+
+
+def update_morale_after_race(state, position, dnf, dnf_reason, expected_position):
+    """
+    Update driver morale after a race based on results.
+    
+    Args:
+        position: Final position (1-based) or None if DNF
+        dnf: True if the driver didn't finish
+        dnf_reason: "engine", "crash", or None
+        expected_position: What position the driver 'should' have achieved
+    """
+    if not state.player_driver:
+        return
+    
+    driver_name = state.player_driver.get("name", "Driver")
+    
+    if dnf:
+        # DNFs are always bad for morale
+        if dnf_reason == "engine":
+            # Mechanical failures are the team's fault - big morale hit
+            adjust_driver_morale(state, -10, 
+                f"mechanical failure frustrates {driver_name}")
+        elif dnf_reason == "crash":
+            # Crashes are often driver error - smaller hit, but still frustrating
+            adjust_driver_morale(state, -5, 
+                f"retirement from a crash dampens spirits")
+        else:
+            adjust_driver_morale(state, -6, 
+                f"DNF hurts team atmosphere")
+        return
+    
+    # Finished the race - morale depends on result vs expectation
+    if position == 1:
+        adjust_driver_morale(state, 10, f"race win! {driver_name} is delighted")
+    elif position <= 3:
+        adjust_driver_morale(state, 5, f"podium finish lifts spirits")
+    elif position <= 6:
+        adjust_driver_morale(state, 2, f"solid points finish", silent=True)
+    elif position <= 10:
+        adjust_driver_morale(state, 1, f"decent result", silent=True)
+    else:
+        # Finished outside points - check if car is to blame
+        if expected_position and position > expected_position + 5:
+            # Much worse than expected - car is holding them back
+            adjust_driver_morale(state, -4, 
+                f"car underperformance frustrates {driver_name}")
+        elif expected_position and position > expected_position + 2:
+            adjust_driver_morale(state, -2, 
+                f"below-par result", silent=True)
+
+
+def update_morale_for_slow_car(state, car_speed, field_average_speed):
+    """
+    Periodic morale adjustment if car is significantly slower than field.
+    Called during race week or at week end.
+    """
+    if not state.player_driver:
+        return
+    
+    speed_deficit = field_average_speed - car_speed
+    
+    if speed_deficit > 15:
+        # Car is very slow - significant morale hit
+        adjust_driver_morale(state, -3, 
+            f"uncompetitive machinery tests patience")
+    elif speed_deficit > 8:
+        # Car is below average
+        adjust_driver_morale(state, -1, 
+            f"midfield struggles", silent=True)
+
+
+def update_morale_for_poach_refusal(state, poaching_team):
+    """
+    Major morale hit when player refuses to let driver join a bigger team.
+    """
+    if not state.player_driver:
+        return
+    
+    from gmr.data import constructors
+    poaching_prestige = constructors.get(poaching_team, {}).get("prestige", 5.0)
+    player_prestige = getattr(state, "prestige", 1.0)
+    
+    prestige_gap = poaching_prestige - player_prestige
+    
+    if prestige_gap > 5:
+        # Massive opportunity missed - driver is furious
+        adjust_driver_morale(state, -25, 
+            f"blocked move to {poaching_team} causes serious resentment")
+    elif prestige_gap > 3:
+        # Good opportunity missed
+        adjust_driver_morale(state, -18, 
+            f"refused chance to join {poaching_team}")
+    elif prestige_gap > 0:
+        # Lateral-ish move refused
+        adjust_driver_morale(state, -10, 
+            f"turned down by management")
+
+
+def update_morale_for_stayed_loyal(state):
+    """
+    Small morale boost when driver chooses to stay after poach attempt.
+    Shows the relationship is strengthening.
+    """
+    if not state.player_driver:
+        return
+    
+    adjust_driver_morale(state, 5, 
+        f"loyalty to the team strengthens bond")
+
+
+def update_morale_for_financial_trouble(state):
+    """
+    Morale hit when team is in financial trouble.
+    """
+    if not state.player_driver:
+        return
+    
+    money = getattr(state, "money", 0)
+    loan = getattr(state, "loan_balance", 0)
+    
+    if money < 0:
+        adjust_driver_morale(state, -5, 
+            f"team's financial crisis causes concern")
+    elif loan > 0 and money < 200:
+        adjust_driver_morale(state, -2, 
+            f"tight finances worry the paddock", silent=True)
+
+
+def update_morale_for_prestige_change(state, old_prestige, new_prestige):
+    """
+    Morale adjustment when team prestige changes significantly.
+    """
+    if not state.player_driver:
+        return
+    
+    delta = new_prestige - old_prestige
+    
+    if delta >= 1.0:
+        adjust_driver_morale(state, 3, 
+            f"team's rising reputation boosts confidence")
+    elif delta <= -1.0:
+        adjust_driver_morale(state, -3, 
+            f"team's falling reputation causes worry")
+
+
+def check_driver_walkout(state, time):
+    """
+    Check if driver morale is low enough that they walk out.
+    Returns True if driver walked out, False otherwise.
+    """
+    if not state.player_driver:
+        return False
+    
+    morale = get_driver_morale(state)
+    driver = state.player_driver
+    driver_name = driver.get("name", "Driver")
+    team_name = state.player_constructor or "the team"
+    
+    # Morale must be critically low
+    if morale >= 20:
+        return False
+    
+    # Even at low morale, walkouts aren't guaranteed
+    # Base 20% chance at morale 0, scaling down to 5% at morale 19
+    walkout_chance = 0.05 + (20 - morale) * 0.0075
+    
+    # Famous drivers are more likely to walk (they have options)
+    fame = driver.get("fame", 0)
+    walkout_chance += fame * 0.03
+    
+    # Patience stat could reduce this (if implemented on drivers)
+    
+    if random.random() > walkout_chance:
+        return False
+    
+    # Driver walks out!
+    print("\n" + "=" * 70)
+    print("  ⚠️  DRIVER WALKS OUT  ⚠️")
+    print("=" * 70)
+    
+    print(f"\n  {driver_name} storms into your office.")
+    print(f"\n  'I've had enough. The car is unreliable, the results aren't coming,")
+    print(f"   and frankly I don't see things improving here.'")
+    
+    input("\n  [Press Enter to continue...]")
+    
+    print(f"\n  'I'm terminating my contract effective immediately.")
+    print(f"   Find yourself another driver.'")
+    
+    print(f"\n  Before you can respond, {driver_name} is out the door.")
+    
+    input("\n  [Press Enter to continue...]")
+    
+    # Process the walkout
+    driver["constructor"] = "Independent"
+    state.player_driver = None
+    state.driver_morale = 0
+    state.driver_pay = 0
+    state.driver_contract_races = 0
+    
+    state.news.append(
+        f"💥 BREAKING: {driver_name} walks out on {team_name}! "
+        f"Citing 'irreconcilable differences', the driver terminates their contract."
+    )
+    
+    # Prestige hit for being walked out on
+    old_prestige = state.prestige
+    state.prestige = max(0, state.prestige - 2.0)
+    state.news.append(
+        f"The embarrassing departure damages {team_name}'s reputation "
+        f"(prestige {old_prestige:.1f} → {state.prestige:.1f})."
+    )
+    
+    return True
+
+
+def morale_affects_extension_willingness(state):
+    """
+    Returns a multiplier for how likely the driver is to accept extension.
+    Also returns rejection reasons if morale is too low.
+    
+    Happy drivers don't demand raises - they're content with the same pay.
+    Unhappy drivers demand premium pay to stay.
+    
+    Returns: (willing: bool, pay_multiplier: float, rejection_reason: str or None)
+    """
+    if not state.player_driver:
+        return (False, 1.0, "No driver")
+    
+    morale = get_driver_morale(state)
+    driver_name = state.player_driver.get("name", "Driver")
+    
+    if morale < 20:
+        return (False, 0, f"{driver_name} flatly refuses - the relationship is beyond repair.")
+    
+    if morale < 35:
+        # Very unhappy - demands big raise to stay
+        return (True, 1.4, f"{driver_name} is hesitant and will demand a significant pay rise.")
+    
+    if morale < 50:
+        # Reluctant, wants more money
+        return (True, 1.2, f"{driver_name} has reservations and wants better pay to stay.")
+    
+    if morale < 70:
+        # Normal negotiations - modest raise expected
+        return (True, 1.1, f"{driver_name} expects a modest pay rise for the new deal.")
+    
+    # Happy driver - content with current pay, doesn't demand more
+    return (True, 1.0, f"{driver_name} is happy here and not asking for a raise.")
+
+
+def morale_affects_poach_response(state):
+    """
+    Returns how morale affects driver's response to poaching attempts.
+    Low morale = more likely to force the move even if you refuse.
+    
+    Returns: modifier to force_move_chance (additive)
+    """
+    if not state.player_driver:
+        return 0
+    
+    morale = get_driver_morale(state)
+    
+    if morale >= 80:
+        return -0.15  # Very loyal, less likely to force move
+    elif morale >= 60:
+        return -0.05  # Slightly loyal
+    elif morale >= 40:
+        return 0  # Neutral
+    elif morale >= 25:
+        return 0.10  # Unhappy, more tempted
+    else:
+        return 0.25  # Very unhappy, very likely to leave
+
+
 def reset_driver_pool():
     """
     Reset the driver pool to its initial starting state.
@@ -78,12 +460,16 @@ def tick_driver_contract_after_race_end(state, time, started_race: bool):
 
 
 
-def maybe_refill_ai_teams(state, time):
+def maybe_refill_ai_teams(state, time, allow_poaching=False):
     """
     Check all AI teams that have 'replenishes': True in their constructor data.
     If they have fewer drivers than 'max_drivers', they sign from Independents.
     
     This handles Valdieri, Enzoni (after tragedy), and any future teams.
+    
+    Args:
+        allow_poaching: If True, high-prestige teams may attempt to poach the 
+                        player's contracted driver if they're good enough.
     """
     from gmr.data import constructors
     
@@ -110,13 +496,30 @@ def maybe_refill_ai_teams(state, time):
         
         # Build candidate pool from Independents
         team_prestige = team_data.get("prestige", 0.0)
+        player_prestige = getattr(state, "prestige", 1.0)
         candidates = []
         
         for d in drivers:
+            # Usually only sign independents
             if d.get("constructor") != "Independent":
-                continue
-            if state.player_driver is d:
-                continue
+                # But if poaching is enabled, consider player's driver
+                if allow_poaching and state.player_driver is d:
+                    # Only if this team is significantly more prestigious
+                    if team_prestige > player_prestige + 3:
+                        pass  # Allow consideration
+                    else:
+                        continue
+                else:
+                    continue
+            
+            # Never poach a driver we already tried and failed to poach this session
+            if hasattr(state, 'failed_poach_attempts'):
+                already_tried = any(
+                    attempt['team'] == team_name and attempt['driver'] == d.get('name')
+                    for attempt in state.failed_poach_attempts
+                )
+                if already_tried:
+                    continue
             
             pace = d.get("pace", 0)
             cons = d.get("consistency", 0)
@@ -135,6 +538,10 @@ def maybe_refill_ai_teams(state, time):
                 youth_bonus
             )
             
+            # Penalty for poaching player's driver (they'll need to be clearly better)
+            if state.player_driver is d:
+                score -= 3.0
+            
             candidates.append((score, d))
         
         candidates.sort(key=lambda x: x[0], reverse=True)
@@ -148,19 +555,41 @@ def maybe_refill_ai_teams(state, time):
             if not candidates:
                 break
             
-            pick = candidates.pop(0)[1]
-            pick["constructor"] = team_name
-            signed_names.append(pick["name"])
+            score, pick = candidates.pop(0)
+            
+            # If this is the player's driver, use the poaching system
+            if state.player_driver is pick:
+                result = attempt_poach_player_driver(
+                    state, 
+                    team_name, 
+                    pick, 
+                    reason="to fill an empty seat"
+                )
+                
+                if result == "refused_stayed":
+                    # Driver stayed - try next candidate
+                    continue
+                else:
+                    # Driver left (success or refused_left)
+                    signed_names.append(pick["name"])
+            else:
+                # Normal signing from independents
+                pick["constructor"] = team_name
+                signed_names.append(pick["name"])
             
             # Remove from candidate list
             candidates = [(s, drv) for (s, drv) in candidates if drv is not pick]
         
         if signed_names:
-            if len(signed_names) == 1:
+            # Only announce if it wasn't a poach (poach has its own news)
+            non_poach_names = [name for name in signed_names 
+                              if not any(name == getattr(state, '_last_poached_driver', None) for _ in [1])]
+            
+            if len(signed_names) == 1 and signed_names[0] not in [getattr(state, '_last_poached_driver', '')]:
                 state.news.append(
                     f"{team_name} respond to the market: they sign {signed_names[0]} to fill an empty seat."
                 )
-            else:
+            elif len(signed_names) > 1:
                 names_str = " and ".join(signed_names) if len(signed_names) == 2 else ", ".join(signed_names)
                 state.news.append(
                     f"{team_name} rebuild their lineup: they sign {names_str}."
@@ -513,7 +942,7 @@ def spawn_new_rookies(state, time):
                 "Tazio", "Achille", "Silvio", "Gastone", "Onofre", "Ludovico",
             ],
             "last": [
-                "Bianchi", "Conti", "De Luca", "Moretti", "Galli", "Marini",
+                "Conti", "De Luca", "Moretti", "Galli", "Marini",
                 "Esposito", "Romano", "Colombo", "Serafini", "Barbieri",
                 "Valenti", "Bernardi", "Ricci", "Ferretti", "Marchetti", "Venturi",
                 "Mantovani", "Rossetti", "Benedetti", "Santini", "Carbone",
@@ -825,15 +1254,29 @@ def apply_offseason_ageing_and_retirement(state, time):
         fame = d.get("fame", 0)
 
         if age >= hard_retire + 5:
-            retire_prob = 0.60
+            # Well past prime - very likely to retire
+            retire_prob = 0.75
         elif age >= hard_retire:
-            retire_prob = 0.35
+            # At hard retirement age - strong chance
+            retire_prob = 0.45
         elif age >= soft_retire:
-            retire_prob = 0.12
+            # Soft retirement zone - moderate chance
+            retire_prob = 0.20
+        elif age >= decline_age and age >= 38:
+            # Past decline but not yet at soft retire - small chance
+            # This ensures some turnover happens even in early years
+            retire_prob = 0.08
 
         # Famous drivers cling on slightly longer
         if fame >= 4 and age < hard_retire + 3:
-            retire_prob *= 0.5
+            retire_prob *= 0.6
+        elif fame >= 3:
+            retire_prob *= 0.8
+
+        # Drivers with very low stats are more likely to call it quits
+        stat_sum = d.get("pace", 5) + d.get("consistency", 5) + d.get("wet_skill", 5)
+        if stat_sum < 10 and age >= 35:
+            retire_prob += 0.15  # Washed up drivers bow out
 
         if retire_prob > 0 and random.random() < retire_prob:
             retired.append(d)
@@ -846,24 +1289,320 @@ def apply_offseason_ageing_and_retirement(state, time):
             drivers.remove(d)
 
         name = d["name"]
+        age = d.get("age", "?")
         fame = d.get("fame", 0)
         fame_label = describe_driver_fame(fame)
+        country = d.get("country", "Unknown")
 
         if state.player_driver is d:
             team_name = state.player_constructor or "your team"
             state.player_driver = None
             state.driver_pay = 0
             state.driver_contract_races = 0
+            state.driver_morale = 60  # Reset morale
             state.news.append(
-                f"After many seasons, {name} retires from racing, bringing their time with {team_name} to an end."
+                f"🏁 RETIREMENT: After many seasons, {name} ({age}) retires from racing, "
+                f"bringing their time with {team_name} to an end."
             )
         else:
+            # Varied retirement messages based on fame
+            if fame >= 4:
+                state.news.append(
+                    f"🏁 LEGEND RETIRES: {name} ({age}), one of the sport's greats, "
+                    f"announces their retirement. The paddock will miss them."
+                )
+            elif fame >= 2:
+                state.news.append(
+                    f"🏁 RETIREMENT: {name} ({age}), a familiar face in the paddock, "
+                    f"hangs up their helmet after a solid career."
+                )
+            else:
+                retirement_reasons = [
+                    f"🏁 {name} ({age}) quietly retires from motor racing.",
+                    f"🏁 {country} driver {name} ({age}) calls time on their racing career.",
+                    f"🏁 After years in the sport, {name} ({age}) steps away from competition.",
+                ]
+                state.news.append(random.choice(retirement_reasons))
+
+    if retired:
+        state.news.append(f"📰 Offseason: {len(retired)} driver{'s' if len(retired) != 1 else ''} retired this winter.")
+    else:
+        state.news.append("📰 Offseason: No retirements announced.")
+
+
+# =============================================================================
+# GENERIC CONTRACT POACHING SYSTEM
+# =============================================================================
+
+# Team-specific flavor for poaching scenes
+TEAM_POACH_FLAVOR = {
+    "Enzoni": {
+        "arrival": "A sleek black automobile pulls into your workshop.\n  The door opens and out steps a man in an expensive Italian suit.",
+        "introduction": "Good afternoon. I represent Scuderia Enzoni.",
+        "survey": "He removes his sunglasses and surveys your modest operation.",
+        "pitch": "Their performances have not gone unnoticed in Modena.",
+        "offer_context": "Enzoni are prepared to pay",
+        "refusal_response": "I see. A principled stance. Admirable, if perhaps... unwise.",
+        "driver_leaves_line": "But this is Enzoni. This is a chance to race for a championship.",
+        "exit_threat": "Very well. Enzoni will remember this. Both of you.",
+        "prestige_mult": 1.5,  # Enzoni pay a premium
+    },
+    "Scuderia Valdieri": {
+        "arrival": "A dust-covered Fiat pulls up outside your garage.\n  A weathered Italian gentleman steps out, hat in hand.",
+        "introduction": "Buongiorno. I come on behalf of Scuderia Valdieri.",
+        "survey": "He glances around your workshop with a knowing eye.",
+        "pitch": "Word of their talent has reached us in Turin.",
+        "offer_context": "Valdieri would like to offer",
+        "refusal_response": "A shame. We had hoped for a more... collaborative arrangement.",
+        "driver_leaves_line": "Valdieri are building something special. I want to be part of it.",
+        "exit_threat": "Perhaps another time, then. The paddock is smaller than you think.",
+        "prestige_mult": 1.2,
+    },
+    "default": {
+        "arrival": "An unfamiliar automobile pulls up to your workshop.\n  A well-dressed representative steps out.",
+        "introduction": "Good day. I represent a racing team with interest in your driver.",
+        "survey": "They look around your operation with an appraising eye.",
+        "pitch": "Their recent performances have caught our attention.",
+        "offer_context": "We are prepared to offer",
+        "refusal_response": "Unfortunate. We had hoped you would see reason.",
+        "driver_leaves_line": "This is a better opportunity. I have to think of my career.",
+        "exit_threat": "Very well. But opportunities like this don't come twice.",
+        "prestige_mult": 1.0,
+    },
+}
+
+
+def _get_team_flavor(team_name):
+    """Get team-specific flavor text, falling back to default."""
+    return TEAM_POACH_FLAVOR.get(team_name, TEAM_POACH_FLAVOR["default"])
+
+
+def _show_poaching_scene(state, driver, poaching_team, buyout_amount):
+    """
+    Display a dramatic scene when any team tries to poach the player's contracted driver.
+    Returns the player's choice: 'accept' or 'refuse'.
+    """
+    driver_name = driver.get("name", "your driver")
+    team_name = state.player_constructor or "your team"
+    flavor = _get_team_flavor(poaching_team)
+    
+    print("\n" + "=" * 70)
+    print("  ⚠️  BREAKING NEWS: CONTRACT DISPUTE  ⚠️")
+    print("=" * 70)
+    
+    print(f"\n  {flavor['arrival']}")
+    print(f"\n  '{flavor['introduction']}'")
+    
+    input("\n  [Press Enter to continue...]")
+    
+    print(f"\n  {flavor['survey']}")
+    print(f"\n  'We have been watching {driver_name} with great interest.")
+    print(f"   {flavor['pitch']}'")
+    
+    input("\n  [Press Enter to continue...]")
+    
+    print(f"\n  '{poaching_team} would like {driver_name}")
+    print(f"   to join our racing programme.'")
+    
+    print(f"\n  They produce an envelope from their jacket.")
+    print(f"\n  'We understand there is a contract in place with {team_name}.")
+    print(f"   {flavor['offer_context']} £{buyout_amount} as compensation")
+    print(f"   for the early termination of that agreement.'")
+    
+    input("\n  [Press Enter to continue...]")
+    
+    print(f"\n  {driver_name} stands nearby, trying to look neutral but clearly")
+    print(f"  intrigued by the offer from {poaching_team}.")
+    
+    print("\n" + "-" * 70)
+    print(f"  {poaching_team} offer £{buyout_amount} buyout for {driver_name}'s contract.")
+    print("-" * 70)
+    
+    print("\n  What do you do?")
+    print("\n  1. Accept the buyout (take the money, release the driver)")
+    print("  2. Refuse (try to keep your driver)")
+    
+    while True:
+        choice = input("\n  > ").strip()
+        if choice == "1":
+            return "accept"
+        elif choice == "2":
+            return "refuse"
+        else:
+            print("  Please enter 1 or 2.")
+
+
+def _handle_poach_refusal(state, driver, poaching_team, buyout_amount):
+    """
+    Handle the player refusing to let a team poach their driver.
+    The driver may still leave (unhappily) or stay (but disgruntled).
+    Morale heavily influences whether driver forces the move.
+    Returns True if driver still leaves, False if they stay.
+    """
+    driver_name = driver.get("name", "your driver")
+    team_name = state.player_constructor or "your team"
+    flavor = _get_team_flavor(poaching_team)
+    fame = driver.get("fame", 0)
+    pace = driver.get("pace", 0)
+    
+    # Get poaching team's prestige to influence driver's decision
+    from gmr.data import constructors
+    poaching_prestige = constructors.get(poaching_team, {}).get("prestige", 5.0)
+    player_prestige = getattr(state, "prestige", 1.0)
+    
+    print(f"\n  You step forward. 'I'm sorry, but {driver_name} is under contract")
+    print(f"  with {team_name}. We have plans together. The answer is no.'")
+    
+    input("\n  [Press Enter to continue...]")
+    
+    print(f"\n  The {poaching_team} representative raises an eyebrow.")
+    print(f"  '{flavor['refusal_response']}'")
+    
+    input("\n  [Press Enter to continue...]")
+    
+    # Driver's reaction depends on:
+    # - Their fame/ambition (higher = more likely to force move)
+    # - Their pace (faster drivers have more leverage)
+    # - Prestige gap (bigger gap = more tempting to leave)
+    # - MORALE (unhappy drivers much more likely to force the move)
+    
+    prestige_gap = max(0, poaching_prestige - player_prestige)
+    force_move_chance = 0.2 + (fame * 0.10) + (pace * 0.02) + (prestige_gap * 0.05)
+    
+    # Morale modifier: happy drivers are loyal, unhappy drivers want out
+    morale_modifier = morale_affects_poach_response(state)
+    force_move_chance += morale_modifier
+    
+    force_move_chance = max(0.05, min(0.90, force_move_chance))  # Cap between 5% and 90%
+    
+    if random.random() < force_move_chance:
+        # Driver forces the move anyway
+        print(f"\n  {driver_name} steps forward, looking uncomfortable.")
+        print(f"\n  '{team_name} has been good to me. But...")
+        print(f"   {flavor['driver_leaves_line']} I... I have to take it.'")
+        
+        input("\n  [Press Enter to continue...]")
+        
+        print(f"\n  The representative smiles thinly. 'The driver wishes to leave.")
+        print(f"  We will of course still honour the buyout. Business is business.'")
+        
+        print(f"\n  ✓ You receive £{buyout_amount} in compensation.")
+        print(f"  ✗ {driver_name} leaves for {poaching_team} anyway.")
+        
+        input("\n  [Press Enter to continue...]")
+        return True
+    else:
+        # Driver stays loyal (for now) - but morale takes a hit from blocked opportunity
+        print(f"\n  {driver_name} looks at the representative, then back at you.")
+        print(f"\n  'I gave my word to {team_name}. I'll honour my contract.'")
+        
+        input("\n  [Press Enter to continue...]")
+        
+        print(f"\n  The visitor straightens their coat.")
+        print(f"  '{flavor['exit_threat']}'")
+        print(f"\n  They return to their automobile and drive away.")
+        
+        print(f"\n  ✓ {driver_name} remains with {team_name}.")
+        
+        # Morale impact: Driver stayed but is now resentful
+        # The bigger the opportunity missed, the bigger the morale hit
+        update_morale_for_poach_refusal(state, poaching_team)
+        
+        # Small loyalty bonus for choosing to stay despite the opportunity
+        update_morale_for_stayed_loyal(state)
+        
+        morale = get_driver_morale(state)
+        morale_label, morale_emoji, _ = describe_morale(morale)
+        print(f"  {morale_emoji} Driver morale: {morale_label} ({morale}/100)")
+        
+        if morale < 40:
+            print(f"  ⚠️  {driver_name} is clearly frustrated by this decision...")
+        
+        # Track the failed poach attempt
+        if not hasattr(state, 'failed_poach_attempts'):
+            state.failed_poach_attempts = []
+        state.failed_poach_attempts.append({
+            'team': poaching_team,
+            'driver': driver_name,
+        })
+        
+        input("\n  [Press Enter to continue...]")
+        return False
+
+
+def attempt_poach_player_driver(state, poaching_team, driver, reason=""):
+    """
+    Generic function for any AI team to attempt poaching the player's contracted driver.
+    
+    Args:
+        state: Game state
+        poaching_team: Name of the team trying to poach (e.g., "Enzoni")
+        driver: The driver dict being poached
+        reason: Optional context for news (e.g., "for their 1950 expansion")
+    
+    Returns:
+        - "success": Driver moved to poaching team, player received buyout
+        - "refused_left": Player refused but driver forced the move anyway
+        - "refused_stayed": Player refused and driver stayed loyal
+    """
+    from gmr.data import constructors
+    
+    team_name = state.player_constructor or "your team"
+    driver_name = driver.get("name", "the driver")
+    
+    # Calculate buyout amount
+    races_remaining = getattr(state, "driver_contract_races", 0)
+    pay_per_race = getattr(state, "driver_pay", 0)
+    
+    base_buyout = races_remaining * pay_per_race
+    
+    # Prestige affects buyout premium - bigger teams pay more
+    flavor = _get_team_flavor(poaching_team)
+    prestige_mult = flavor.get("prestige_mult", 1.0)
+    premium = max(75, int(base_buyout * 0.5 * prestige_mult))
+    buyout_amount = int(base_buyout + premium)
+    
+    # Minimum buyout even if contract expired
+    if buyout_amount < 50:
+        buyout_amount = int(75 * prestige_mult)
+    
+    # Show the dramatic poaching scene
+    player_choice = _show_poaching_scene(state, driver, poaching_team, buyout_amount)
+    
+    if player_choice == "refuse":
+        driver_still_leaves = _handle_poach_refusal(state, driver, poaching_team, buyout_amount)
+        
+        if not driver_still_leaves:
+            # Driver stayed loyal
             state.news.append(
-                f"Long-time {fame_label.lower()} {name} hangs up their helmet and retires from the sport."
+                f"{poaching_team}'s approach for {driver_name} is rebuffed. "
+                f"The driver remains loyal to {team_name}."
             )
-
-    state.news.append(f"Offseason report: {len(retired)} retirement(s).")
-
+            return "refused_stayed"
+        # else: fall through to process the transfer
+    
+    # Driver leaves (either accepted or forced move after refusal)
+    driver["constructor"] = poaching_team
+    
+    # Pay the buyout
+    state.money += buyout_amount
+    state.last_week_income += buyout_amount
+    
+    # Clear player driver state
+    state.player_driver = None
+    state.driver_pay = 0
+    state.driver_contract_races = 0
+    
+    reason_text = f" {reason}" if reason else ""
+    state.news.append(
+        f"TRANSFER: {driver_name} joins {poaching_team}{reason_text}. "
+        f"{team_name} receive £{buyout_amount} in compensation."
+    )
+    
+    if player_choice == "accept":
+        return "success"
+    else:
+        return "refused_left"
 
 
 def maybe_expand_enzoni_to_three_cars(state, time):
@@ -873,6 +1612,8 @@ def maybe_expand_enzoni_to_three_cars(state, time):
       - They prioritise raw pace and consistency
       - They will poach from Valdieri without hesitation
       - They can steal the player's driver if they are clearly strong
+      
+    Uses the generic poaching system for player driver scenarios.
     """
     if time.year < 1950:
         return
@@ -929,19 +1670,38 @@ def maybe_expand_enzoni_to_three_cars(state, time):
             return  # not quite worth the fallout
 
     old_team = pick.get("constructor", "Independent")
+    
+    # --- Handle player driver poaching with the generic system ---
+    if state.player_driver is pick:
+        result = attempt_poach_player_driver(
+            state, 
+            "Enzoni", 
+            pick, 
+            reason="for their 1950 three-car campaign"
+        )
+        
+        if result == "refused_stayed":
+            # Driver stayed loyal - Enzoni will sign someone else
+            remaining_candidates = [c for c in candidates if c is not pick]
+            if remaining_candidates:
+                alternate = max(remaining_candidates, key=score)
+                alternate["constructor"] = "Enzoni"
+                state.news.append(
+                    f"Enzoni sign {alternate['name']} as their third driver for 1950."
+                )
+        
+        # News already handled by attempt_poach_player_driver
+        state.news.append(
+            f"The paddock buzzes with the news. Enzoni's ambition knows no bounds."
+        )
+        return
+    
+    # --- Non-player driver signings (existing logic) ---
     pick["constructor"] = "Enzoni"
 
-    if old_team == "Valdieri":
+    if old_team == "Scuderia Valdieri":
         state.news.append(
             f"Power move for 1950: Enzoni poach {pick['name']} from Valdieri to complete a three-car assault."
-        )
-    elif state.player_driver is pick:
-        team_name = state.player_constructor or "your team"
-        state.player_driver = None
-        state.driver_pay = 0
-        state.driver_contract_races = 0
-        state.news.append(
-            f"Paddock bombshell: Enzoni lure {pick['name']} away from {team_name} with a lucrative 1950 offer."
         )
     else:
         state.news.append(
@@ -1178,6 +1938,13 @@ def show_driver_market(state):
             print(f"   Racing for: {d['constructor']}")
             print(f"   Car comfort: {d.get('car_xp', 0.0):.1f}/10")
             
+            # Show morale
+            morale = get_driver_morale(state)
+            morale_label, morale_emoji, morale_flavor = describe_morale(morale)
+            print(f"   Morale: {morale_emoji} {morale_label} ({morale}/100)")
+            if morale_flavor:
+                print(f"      → {morale_flavor}")
+            
             # Show injury status
             if getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 0:
                 weeks_remaining = getattr(state, 'player_driver_injury_weeks_remaining', 0)
@@ -1358,7 +2125,7 @@ def show_driver_market(state):
         fame = selected_driver.get("fame", 0)
 
         base_pay = stat_sum * 2  # skill-based base
-        fame_factor = 1 + fame * 0.10  # each fame point makes them ~10% pricier
+        fame_factor = 1 + fame * 0.20  # each fame point makes them ~20% pricier
         pay_per_race = int(base_pay * fame_factor)
 
         total_contract_cost = pay_per_race * races
@@ -1380,6 +2147,9 @@ def show_driver_market(state):
 
         state.driver_contract_races = races
         state.driver_pay = pay_per_race
+        
+        # Initialize morale for new hire
+        init_driver_morale(state)
 
         # Reset career stats for the new lead driver with this team
         state.races_entered_with_team = 0
@@ -1461,6 +2231,9 @@ def maybe_offer_driver_extension(state, time):
     """
     When a driver's race-count contract expires, give the player a chance
     to offer a new race deal instead of losing them automatically.
+    
+    Now integrates with the morale system - unhappy drivers may refuse
+    or demand higher pay.
 
     Returns True if an extension was signed, False otherwise.
     """
@@ -1469,18 +2242,58 @@ def maybe_offer_driver_extension(state, time):
 
     d = state.player_driver
     team_name = state.player_constructor or "your team"
-
+    
+    # Get morale info
+    morale = get_driver_morale(state)
+    morale_label, morale_emoji, morale_flavor = describe_morale(morale)
+    
+    print(f"\n{'='*60}")
+    print(f"📋 CONTRACT EXPIRATION - {d['name'].upper()}")
+    print(f"{'='*60}")
     print(f"\n{d['name']}'s current race contract has expired.")
+    print(f"\nDriver Morale: {morale_emoji} {morale_label} ({morale}/100)")
+    if morale_flavor:
+        print(f"  → {morale_flavor}")
+    
+    # Check morale-based willingness
+    willing, pay_multiplier, reason = morale_affects_extension_willingness(state)
+    
+    if not willing:
+        print(f"\n❌ {d['name']} is not willing to re-sign!")
+        print(f"   {reason}")
+        print(f"\n{d['name']} packs their bags and leaves {team_name}.")
+        
+        # Clean up driver state
+        d["constructor"] = "Independent"
+        state.player_driver = None
+        state.driver_pay = 0
+        state.driver_contract_races = 0
+        
+        # Add to news
+        if hasattr(state, 'news'):
+            state.news.append(
+                f"💔 {d['name']} refuses contract extension with {team_name} - "
+                f"'{reason}'"
+            )
+        
+        input("\nPress Enter to continue...")
+        return False
+    
+    # Show negotiation context
+    if pay_multiplier > 1.0:
+        print(f"\n⚠️  {d['name']} is demanding {int((pay_multiplier - 1) * 100)}% more pay - {reason.lower()}")
+    elif reason:
+        print(f"\n✨ {reason}")
+
     choice = input(
-        f"Do you want to try to re-sign {d['name']} for more races with {team_name}? (y/n): "
+        f"\nDo you want to try to re-sign {d['name']} for more races with {team_name}? (y/n): "
     ).strip().lower()
 
     if choice != "y":
-        # ✅ HARD CLEANUP HERE so we can’t ever “say they left” but keep them
         print(f"\nYou part ways with {d['name']} at the end of the weekend.")
         state.news.append(f"{d['name']}'s contract expires — they leave {team_name}.")
         d["constructor"] = "Independent"
-
+        
         state.player_driver = None
         state.driver_pay = 0
         state.driver_contract_races = 0
@@ -1501,7 +2314,7 @@ def maybe_offer_driver_extension(state, time):
             continue
         break
 
-    # Recalculate pay-per-race
+    # Recalculate pay-per-race based on stats and morale
     stat_sum = (
         d["pace"]
         + d["consistency"]
@@ -1512,31 +2325,69 @@ def maybe_offer_driver_extension(state, time):
     fame = d.get("fame", 0)
 
     base_pay = stat_sum * 2
-    fame_factor = 1 + fame * 0.10
-    new_pay_per_race = int(base_pay * fame_factor * 1.05)
+    fame_factor = 1 + fame * 0.20  # each fame point makes them ~20% pricier
+    # Base pay is the "market rate" - morale determines how much extra they demand
+    market_rate = int(base_pay * fame_factor)
+    new_pay_per_race = int(market_rate * pay_multiplier)
+    
+    # Clamp to reasonable range
+    new_pay_per_race = max(50, min(50000, new_pay_per_race))
 
     print(f"\nProposed extension for {d['name']}:")
     print(f"  Length: {races} race(s)")
     print(f"  Pay per race: £{new_pay_per_race}")
+    if pay_multiplier > 1.0:
+        print(f"  (Market rate was £{market_rate}, but they're demanding more)")
+    elif pay_multiplier == 1.0 and morale >= 70:
+        print(f"  (Same as current rate - happy drivers don't push for raises)")
+    
     confirm = input("Agree this new deal? (y/n): ").strip().lower()
     if confirm != "y":
-        # ✅ also treat “no” here as leaving
         print("You shake hands and part ways.")
         state.news.append(f"{d['name']}'s contract expires — they leave {team_name}.")
         d["constructor"] = "Independent"
-
+        
         state.player_driver = None
         state.driver_pay = 0
         state.driver_contract_races = 0
+        return False
+
+    # Driver decision based on morale - low morale drivers might still reject
+    import random
+    rejection_chance = 0
+    if morale < 50:
+        rejection_chance = (50 - morale) / 200  # Up to 25% rejection at 0 morale
+    
+    if random.random() < rejection_chance:
+        print(f"\n😤 {d['name']} considers the offer but ultimately declines.")
+        print(f'"I appreciate the offer, but I need a change of scenery."')
+        
+        state.news.append(
+            f"📰 {d['name']} rejects contract extension from {team_name} despite negotiations"
+        )
+        d["constructor"] = "Independent"
+        
+        state.player_driver = None
+        state.driver_pay = 0
+        state.driver_contract_races = 0
+        input("\nPress Enter to continue...")
         return False
 
     # Lock in extension
     state.driver_contract_races = races
     state.driver_pay = new_pay_per_race
     d["constructor"] = team_name
+    
+    # Morale boost for re-signing
+    adjust_driver_morale(state, 10, "signed a new contract", silent=True)
 
-    print(f"\n{d['name']} agrees to stay with {team_name} for another {races} races.")
-    state.news.append(f"{d['name']} signs a new {races}-race deal to stay with {team_name}.")
+    print(f"\n🎉 {d['name']} signs a new {races}-race deal with {team_name}!")
+    
+    new_morale = get_driver_morale(state)
+    new_label, new_emoji, _ = describe_morale(new_morale)
+    print(f"Driver Morale: {new_emoji} {new_label} ({new_morale}/100)")
+    
+    state.news.append(f"✍️ {d['name']} signs a new {races}-race deal to stay with {team_name}.")
 
     fame_boost = max(0, fame) * 0.2
     before = state.prestige
@@ -1547,4 +2398,6 @@ def maybe_offer_driver_extension(state, time):
             f"(prestige {before:.1f} → {state.prestige:.1f})."
         )
 
+    input("\nPress Enter to continue...")
     return True
+
