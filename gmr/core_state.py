@@ -690,6 +690,7 @@ class GameState:
         # Track which sponsors have made offers (to avoid repeat spam)
         self.sponsors_offered_this_year = set()
         self.sponsor_last_offer_week = 0
+        self.sponsor_last_offer_year = 0
         
         # Legacy fields for backwards compatibility
         self.sponsor_active = False
@@ -928,6 +929,8 @@ def ensure_state_fields(state) -> None:
         state.sponsors_offered_this_year = set()
     if not hasattr(state, "sponsor_last_offer_week"):
         state.sponsor_last_offer_week = 0
+    if not hasattr(state, "sponsor_last_offer_year"):
+        state.sponsor_last_offer_year = 0
 
     # Tyre sponsor fields
     if not hasattr(state, "tyre_sponsor_active"):

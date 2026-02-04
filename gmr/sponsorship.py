@@ -272,16 +272,22 @@ def maybe_offer_sponsor(state, time):
     Main entry point for sponsor offers.
     Can offer multiple sponsors over time, respecting slot limits.
     """
-    # Don't spam offers too frequently
-    current_week = getattr(state, 'season_week', time.week if hasattr(time, 'week') else 1)
-    last_offer = getattr(state, 'sponsor_last_offer_week', 0)
+    # Get current season week
+    from gmr.core_time import get_season_week
+    current_week = get_season_week(time)
+    
+    # Track offers per year using absolute week to handle year transitions
+    last_offer_year = getattr(state, 'sponsor_last_offer_year', 0)
+    last_offer_week = getattr(state, 'sponsor_last_offer_week', 0)
     
     # Reset offered list at year start
-    if current_week < 5:
+    if time.year > last_offer_year:
         state.sponsors_offered_this_year = set()
+        state.sponsor_last_offer_week = 0
+        last_offer_week = 0
     
-    # Need at least 4 weeks between offers
-    if current_week - last_offer < 4 and last_offer > 0:
+    # Need at least 3 weeks between offers (within same year)
+    if time.year == last_offer_year and current_week - last_offer_week < 3 and last_offer_week > 0:
         return
     
     # Need minimum prestige
@@ -292,8 +298,8 @@ def maybe_offer_sponsor(state, time):
     if not getattr(state, "ever_completed_vallone", False) and len(getattr(state, 'race_history', [])) < 1:
         return
     
-    # Random chance (20% per eligible week)
-    if random.random() > 0.20:
+    # Random chance (35% per eligible week - increased for better gameplay)
+    if random.random() > 0.35:
         return
     
     # Check if we have room for more sponsors
@@ -342,6 +348,7 @@ def maybe_offer_sponsor(state, time):
     
     # Present the offer(s)
     state.sponsor_last_offer_week = current_week
+    state.sponsor_last_offer_year = time.year
     present_sponsor_offers(state, time, offers)
 
 
