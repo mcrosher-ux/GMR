@@ -459,6 +459,116 @@ def tick_driver_contract_after_race_end(state, time, started_race: bool):
             return
 
 
+def _get_ai_contract_length(team_prestige: float, driver_fame: float) -> int:
+    """Get a reasonable AI contract length in races based on prestige and fame."""
+    base_min = 4
+    base_max = 9
+    # Higher prestige teams offer longer deals; famous drivers get shorter deals
+    prestige_bonus = int(team_prestige / 3)
+    fame_penalty = int(driver_fame)
+    min_races = max(3, base_min + prestige_bonus - fame_penalty)
+    max_races = max(min_races + 1, base_max + prestige_bonus - fame_penalty)
+    return random.randint(min_races, max_races)
+
+
+def assign_ai_contract(driver, team_name, time):
+    """Assign or refresh an AI driver's contract with a team."""
+    from gmr.data import constructors
+
+    team_prestige = constructors.get(team_name, {}).get("prestige", 5.0)
+    fame = float(driver.get("fame", 0))
+
+    driver["contract_team"] = team_name
+    driver["contract_signed_year"] = time.year if time else 1947
+    driver["contract_races_remaining"] = _get_ai_contract_length(team_prestige, fame)
+
+
+def init_ai_contracts_if_missing(state, time):
+    """Ensure all AI team drivers have contracts on load/start of season."""
+    for d in drivers:
+        if d is state.player_driver:
+            continue
+        team_name = d.get("constructor")
+        if team_name in ("Independent", "Test"):
+            continue
+        if d.get("contract_team") != team_name or d.get("contract_races_remaining") is None:
+            assign_ai_contract(d, team_name, time)
+
+
+def maybe_handle_ai_contract_expiry(state, time, driver):
+    """Handle AI driver contract expiry: renew or release to Independents."""
+    from gmr.data import constructors
+
+    team_name = driver.get("constructor")
+    if not team_name or team_name in ("Independent", "Test"):
+        return
+
+    team_prestige = constructors.get(team_name, {}).get("prestige", 5.0)
+    fame = float(driver.get("fame", 0))
+    age = driver.get("age", 40)
+
+    # Renewal chance: higher for prestige teams, lower for high-fame/older drivers
+    renew_chance = 0.6 + (team_prestige * 0.03) - (fame * 0.08) - max(0, age - 35) * 0.01
+    # Era tuning: early years are more chaotic, later more stable
+    if time.year <= 1950:
+        renew_chance -= 0.10
+    elif time.year >= 1958:
+        renew_chance += 0.05
+    renew_chance = max(0.2, min(0.9, renew_chance))
+
+    if random.random() < renew_chance:
+        assign_ai_contract(driver, team_name, time)
+        state.news.append(f"{team_name} renew their deal with {driver.get('name', 'a driver')}.")
+        return
+
+    # Contract not renewed -> driver becomes Independent
+    driver["constructor"] = "Independent"
+    driver["contract_team"] = None
+    driver["contract_races_remaining"] = 0
+    state.news.append(
+        f"{driver.get('name', 'A driver')} parts ways with {team_name} and returns to the open market."
+    )
+
+
+def tick_ai_contracts_after_race_end(state, time, finishers, dnf_drivers):
+    """
+    Decrement AI driver contracts after a race for drivers who started.
+    If contracts expire, handle renewals or releases.
+    """
+    participants = [d for d, _ in finishers] + list(dnf_drivers)
+
+    for d in participants:
+        # Skip player driver (handled separately)
+        if d is state.player_driver:
+            continue
+
+        team_name = d.get("constructor")
+        if team_name in ("Independent", "Test"):
+            continue
+
+        # Ensure contract fields exist
+        if d.get("contract_team") != team_name or d.get("contract_races_remaining") is None:
+            assign_ai_contract(d, team_name, time)
+
+        # Guard against double-decrement in the same race week
+        current_week = getattr(time, "week", 0)
+        current_year = getattr(time, "year", 0)
+        last_week = d.get("_contract_last_decrement_week", -1)
+        last_year = d.get("_contract_last_decrement_year", -1)
+
+        if current_week == last_week and current_year == last_year:
+            continue
+
+        d["_contract_last_decrement_week"] = current_week
+        d["_contract_last_decrement_year"] = current_year
+
+        # Decrement contract
+        d["contract_races_remaining"] = max(0, int(d.get("contract_races_remaining", 0)) - 1)
+
+        if d["contract_races_remaining"] <= 0:
+            maybe_handle_ai_contract_expiry(state, time, d)
+
+
 
 def maybe_refill_ai_teams(state, time, allow_poaching=False):
     """
@@ -527,6 +637,15 @@ def maybe_refill_ai_teams(state, time, allow_poaching=False):
                         pass  # Allow consideration
                     else:
                         continue
+                # Or consider poaching AI drivers near contract end
+                elif allow_poaching:
+                    other_team = d.get("constructor")
+                    other_prestige = constructors.get(other_team, {}).get("prestige", 0.0)
+                    races_left = int(d.get("contract_races_remaining", 0) or 0)
+                    if team_prestige > other_prestige + 2 and races_left <= 2:
+                        pass  # Allow poach attempt
+                    else:
+                        continue
                 else:
                     continue
             
@@ -581,7 +700,8 @@ def maybe_refill_ai_teams(state, time, allow_poaching=False):
                     state, 
                     team_name, 
                     pick, 
-                    reason="to fill an empty seat"
+                    reason="to fill an empty seat",
+                    time=time,
                 )
                 
                 if result == "refused_stayed":
@@ -591,8 +711,9 @@ def maybe_refill_ai_teams(state, time, allow_poaching=False):
                     # Driver left (success or refused_left)
                     signed_names.append(pick["name"])
             else:
-                # Normal signing from independents
+                # Normal signing from independents or AI poach
                 pick["constructor"] = team_name
+                assign_ai_contract(pick, team_name, time)
                 signed_names.append(pick["name"])
             
             # Remove from candidate list
@@ -1548,7 +1669,7 @@ def _handle_poach_refusal(state, driver, poaching_team, buyout_amount):
         return False
 
 
-def attempt_poach_player_driver(state, poaching_team, driver, reason=""):
+def attempt_poach_player_driver(state, poaching_team, driver, reason="", time=None):
     """
     Generic function for any AI team to attempt poaching the player's contracted driver.
     
@@ -1601,6 +1722,7 @@ def attempt_poach_player_driver(state, poaching_team, driver, reason=""):
     
     # Driver leaves (either accepted or forced move after refusal)
     driver["constructor"] = poaching_team
+    assign_ai_contract(driver, poaching_team, time)
     
     # Pay the buyout
     state.money += buyout_amount
@@ -1695,7 +1817,8 @@ def maybe_expand_enzoni_to_three_cars(state, time):
             state, 
             "Enzoni", 
             pick, 
-            reason="for their 1950 three-car campaign"
+            reason="for their 1950 three-car campaign",
+            time=time,
         )
         
         if result == "refused_stayed":
@@ -1933,105 +2056,133 @@ def show_driver_race_history(state, driver):
 
 
 def show_driver_market(state, time=None):
-    while True:
-        print("\n=== Driver Market ===")
-
-        # Show current driver
-        if state.player_driver:
-            d = state.player_driver
-            fame = d.get("fame", 0)
-            age = d.get("age", "?")
-
-            print("Current Driver:")
-            print(f"   Name: {d['name']}")
-            print(f"   Age: {age}  Country: {d.get('country', 'Unknown')}")
-            print(f"   Pace: {d['pace']}  Consistency: {d['consistency']}")
-            print(
-                f"   Aggression: {d['aggression']}  "
-                f"Mech Sympathy: {d['mechanical_sympathy']}  "
-                f"Wet Skill: {d['wet_skill']}"
-            )
-            print(f"   Fame: {fame} ({describe_driver_fame(fame)})")
-            print(f"   Career stage: {describe_career_phase(d)}")
-            print(f"   Racing for: {d['constructor']}")
-            print(f"   Car comfort: {d.get('car_xp', 0.0):.1f}/10")
-            
-            # Show morale
-            morale = get_driver_morale(state)
-            morale_label, morale_emoji, morale_flavor = describe_morale(morale)
-            print(f"   Morale: {morale_emoji} {morale_label} ({morale}/100)")
-            if morale_flavor:
-                print(f"      → {morale_flavor}")
-            
-            # Show injury status
-            if getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 0:
-                weeks_remaining = getattr(state, 'player_driver_injury_weeks_remaining', 0)
-                severity = getattr(state, 'player_driver_injury_severity', 0)
-                severity_desc = {1: "minor", 2: "serious", 3: "career-ending"}.get(severity, "unknown")
-                print(f"   ⚠️  INJURED: {severity_desc} injury, {weeks_remaining} week{'s' if weeks_remaining != 1 else ''} remaining")
-
-        else:
-            print("Current Driver: None hired")
-
+    def build_market_drivers(current_year):
         # Build market list: all non-Enzoni / non-Test drivers
         # Exception: Enzoni drivers marked as "hirable" (e.g., surviving driver after 1950 tragedy)
         # Also exclude drivers whose appears_from_year hasn't arrived (e.g., German drivers before 1950)
-        current_year = time.year if time else 1948
-        market_drivers = [
+        return [
             d for d in drivers
             if (d["constructor"] not in ("Enzoni", "Test") or d.get("hirable"))
             and (not d.get("appears_from_year") or d.get("appears_from_year") <= current_year)
         ]
 
-        print("\nAvailable Drivers:")
-        for idx, d in enumerate(market_drivers, start=1):
-            marker = ""
-            if state.player_driver is d:
-                marker = " [CURRENT]"
+    def pick_country_filter(drivers_list):
+        if not drivers_list:
+            print("\nNo drivers available to filter.")
+            return None
 
-            age = d.get("age", "?")
-            fame = float(d.get("fame", 0.0))
-            fame_label = describe_driver_fame(fame)
-            career_stage = describe_career_phase(d)
+        country_counts = {}
+        for d in drivers_list:
+            country = d.get("country", "Unknown")
+            country_counts[country] = country_counts.get(country, 0) + 1
 
-            print(f"{idx}. {d['name']}{marker}")
-            print(f"   Age: {age}  Fame: {fame} ({fame_label})")
-            print(f"   Career: {career_stage}")
-            print(f"   Country: {d.get('country', 'Unknown')}")
-            print(f"   Pace: {d['pace']}  Consistency: {d['consistency']}")
-            print(
-                f"   Aggression: {d['aggression']}  "
-                f"Mech Sympathy: {d['mechanical_sympathy']}  "
-                f"Wet Skill: {d['wet_skill']}"
-            )
-            print(f"   Registered constructor: {d['constructor']}")
+        countries = sorted(country_counts.keys())
+        print("\n=== Filter by Country ===")
+        for idx, country in enumerate(countries, start=1):
+            print(f"  {idx}. {country} ({country_counts[country]})")
+        print("  [Enter] - Cancel")
 
-        print("\n" + "-" * 40)
-        print("Options:")
-        print("  [number] - View driver profile / hire")
-        print("  [Enter]  - Back to main menu")
-        
         choice = input("\n> ").strip()
-
         if choice == "":
-            return  # back to main menu
-
+            return None
         if not choice.isdigit():
             print("Invalid input.")
-            continue
+            return None
 
         idx = int(choice)
-        if idx < 1 or idx > len(market_drivers):
-            print("Invalid driver selection.")
-            continue
+        if idx < 1 or idx > len(countries):
+            print("Invalid country selection.")
+            return None
 
-        selected_driver = market_drivers[idx - 1]
-        
+        return countries[idx - 1]
+
+    def get_driver_stats_snapshot(driver):
+        name = driver.get("name", "Unknown")
+        country = driver.get("country", "Unknown")
+        history = None
+        if hasattr(state, 'driver_histories') and state.driver_histories:
+            history = state.driver_histories.get(name)
+
+        if history:
+            summary = history.get_career_summary()
+            return {
+                "name": name,
+                "country": country,
+                "starts": summary.get("starts", 0),
+                "wins": summary.get("wins", 0),
+                "podiums": summary.get("podiums", 0),
+                "points": summary.get("points", 0),
+                "championships": summary.get("championships", 0),
+            }
+
+        legacy = state.driver_career.get(name) if hasattr(state, 'driver_career') else None
+        if legacy:
+            return {
+                "name": name,
+                "country": country,
+                "starts": legacy.get("starts", 0),
+                "wins": legacy.get("wins", 0),
+                "podiums": legacy.get("podiums", 0),
+                "points": legacy.get("points", 0),
+                "championships": 0,
+            }
+
+        return {
+            "name": name,
+            "country": country,
+            "starts": 0,
+            "wins": 0,
+            "podiums": 0,
+            "points": 0,
+            "championships": 0,
+        }
+
+    def show_driver_stats_charts():
+        print("\n=== Driver Statistics Charts ===")
+
+        stats = []
+        for d in drivers:
+            snapshot = get_driver_stats_snapshot(d)
+            if snapshot["starts"] > 0 or snapshot["wins"] > 0 or snapshot["podiums"] > 0:
+                stats.append(snapshot)
+
+        if not stats:
+            print("No recorded driver statistics yet.")
+            input("\nPress Enter to return...")
+            return
+
+        def print_chart(title, key, tiebreakers=None, top_n=10):
+            if tiebreakers is None:
+                tiebreakers = []
+
+            def sort_key(s):
+                return tuple([s.get(key, 0)] + [s.get(tb, 0) for tb in tiebreakers])
+
+            ranked = sorted(stats, key=sort_key, reverse=True)
+            ranked = [r for r in ranked if r.get(key, 0) > 0]
+            ranked = ranked[:top_n]
+
+            print("\n" + title)
+            print("-" * len(title))
+            if not ranked:
+                print("  No entries yet.")
+                return
+            for idx, r in enumerate(ranked, start=1):
+                value = r.get(key, 0)
+                print(f"  {idx:2}. {r['name']:<22} {value:<4} ({r['country']})")
+
+        print_chart("Top 10 Race Wins", "wins", tiebreakers=["podiums", "points"])
+        print_chart("Top 10 Championships", "championships", tiebreakers=["wins", "points"])
+        print_chart("Top 10 Podiums", "podiums", tiebreakers=["wins", "points"])
+        print_chart("Top 10 Points", "points", tiebreakers=["wins", "podiums"])
+
+        input("\nPress Enter to return...")
+
+    def handle_driver_hire_flow(selected_driver):
         # Show driver profile with options
         action = show_driver_profile(state, selected_driver)
-        
         if action != "hire":
-            continue  # Back to market list
+            return False
 
         # --- Prince Sagat is unhirable (gentleman driver, races for himself) ---
         if selected_driver.get("name") == "Prince Sagat" or selected_driver.get("gentleman_driver"):
@@ -2039,14 +2190,14 @@ def show_driver_market(state, time=None):
             print("As a gentleman driver, he races purely for the love of the sport")
             print("and has no interest in driving for another team.")
             input("\nPress Enter to return to the Driver Market...")
-            continue
+            return False
 
         # --- Fame/team prestige gate: some drivers won't sign for small teams ---
         can_sign, required_prestige, rejection_reason = can_team_sign_driver(state, selected_driver)
         if not can_sign:
             fame = selected_driver.get("fame", 0)
             current_team = selected_driver.get("constructor", "Independent")
-            
+
             if rejection_reason == "team":
                 # Driver is at a bigger team - harder to poach
                 print(f"\n{selected_driver['name']} is happy at {current_team}.")
@@ -2061,44 +2212,44 @@ def show_driver_market(state, time=None):
                 print(f"  Your team prestige: {state.prestige:.1f}")
                 print(f"  They'd expect a team with at least {required_prestige:.1f} prestige.")
                 print("Put in stronger results or build more reputation before approaching them again.")
-            
+
             input("\nPress Enter to return to the Driver Market...")
-            continue
+            return False
 
         # --- Check if you already have a driver (one-car team limit) ---
         if state.player_driver and state.player_driver != selected_driver:
             current_driver = state.player_driver
             races_remaining = getattr(state, 'driver_contract_races', 0)
             pay_per_race = getattr(state, 'driver_pay', 0)
-            
+
             print(f"\n⚠️  You already have {current_driver['name']} under contract!")
             print(f"   Races remaining: {races_remaining}")
             print(f"   Pay per race: £{pay_per_race}")
-            
+
             if races_remaining > 0:
                 buyout_cost = races_remaining * pay_per_race
                 print(f"\nTo sign {selected_driver['name']}, you must buy out {current_driver['name']}'s contract.")
                 print(f"Buyout cost: £{buyout_cost} (remaining contract value)")
                 print(f"Your funds: £{state.money}")
-                
+
                 if state.money < buyout_cost:
                     print("\n❌ You cannot afford the buyout!")
                     input("\nPress Enter to return to the Driver Market...")
-                    continue
-                
+                    return False
+
                 confirm_buyout = input(f"\nPay £{buyout_cost} to release {current_driver['name']}? (y/n): ").strip().lower()
                 if confirm_buyout != "y":
                     print("You decide to keep your current driver.")
                     input("\nPress Enter to return to the Driver Market...")
-                    continue
-                
+                    return False
+
                 # Process buyout
                 state.money -= buyout_cost
                 state.last_week_outgoings += buyout_cost
                 state.last_week_purchases += buyout_cost
                 print(f"\n✓ {current_driver['name']} has been released from their contract.")
                 print(f"   Buyout paid: £{buyout_cost}")
-                
+
                 # Release driver back to independent
                 current_driver["constructor"] = "Independent"
                 state.player_driver = None
@@ -2160,7 +2311,7 @@ def show_driver_market(state, time=None):
         if confirm != "y":
             print("You decide not to sign this contract.")
             input("\nPress Enter to return to the Driver Market...")
-            continue
+            return False
 
         # Hire / assign to your team
         state.player_driver = selected_driver
@@ -2168,7 +2319,7 @@ def show_driver_market(state, time=None):
 
         state.driver_contract_races = races
         state.driver_pay = pay_per_race
-        
+
         # Initialize morale for new hire
         init_driver_morale(state)
 
@@ -2183,7 +2334,6 @@ def show_driver_market(state, time=None):
             before_fame = float(selected_driver.get("fame", 0.0))
             bump = min(0.15, state.prestige * 0.02)  # capped small
             selected_driver["fame"] = round(min(5.0, before_fame + bump), 2)
-
 
         # --- Instant prestige bump from hiring a name driver ---
         if fame > 0:
@@ -2209,7 +2359,148 @@ def show_driver_market(state, time=None):
         maybe_refill_ai_teams(state, None)
 
         input("\nPress Enter to return to the main menu...")
-        return
+        return True
+
+    search_query = None
+    country_filter = None
+
+    while True:
+        print("\n=== Driver Market ===")
+
+        # Show current driver
+        if state.player_driver:
+            d = state.player_driver
+            fame = d.get("fame", 0)
+            age = d.get("age", "?")
+
+            print("Current Driver:")
+            print(f"   Name: {d['name']}")
+            print(f"   Age: {age}  Country: {d.get('country', 'Unknown')}")
+            print(f"   Pace: {d['pace']}  Consistency: {d['consistency']}")
+            print(
+                f"   Aggression: {d['aggression']}  "
+                f"Mech Sympathy: {d['mechanical_sympathy']}  "
+                f"Wet Skill: {d['wet_skill']}"
+            )
+            print(f"   Fame: {fame} ({describe_driver_fame(fame)})")
+            print(f"   Career stage: {describe_career_phase(d)}")
+            print(f"   Racing for: {d['constructor']}")
+            print(f"   Car comfort: {d.get('car_xp', 0.0):.1f}/10")
+            
+            # Show morale
+            morale = get_driver_morale(state)
+            morale_label, morale_emoji, morale_flavor = describe_morale(morale)
+            print(f"   Morale: {morale_emoji} {morale_label} ({morale}/100)")
+            if morale_flavor:
+                print(f"      → {morale_flavor}")
+            
+            # Show injury status
+            if getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 0:
+                weeks_remaining = getattr(state, 'player_driver_injury_weeks_remaining', 0)
+                severity = getattr(state, 'player_driver_injury_severity', 0)
+                severity_desc = {1: "minor", 2: "serious", 3: "career-ending"}.get(severity, "unknown")
+                print(f"   ⚠️  INJURED: {severity_desc} injury, {weeks_remaining} week{'s' if weeks_remaining != 1 else ''} remaining")
+
+        else:
+            print("Current Driver: None hired")
+
+        current_year = time.year if time else 1948
+        market_drivers = build_market_drivers(current_year)
+
+        filtered_drivers = market_drivers
+        if search_query:
+            filtered_drivers = [
+                d for d in filtered_drivers
+                if search_query.lower() in d.get("name", "").lower()
+            ]
+        if country_filter:
+            filtered_drivers = [
+                d for d in filtered_drivers
+                if d.get("country", "Unknown") == country_filter
+            ]
+
+        print("\nAvailable Drivers:")
+        if search_query or country_filter:
+            active_filters = []
+            if search_query:
+                active_filters.append(f"name contains '{search_query}'")
+            if country_filter:
+                active_filters.append(f"country: {country_filter}")
+            print(f"  (Filters: {', '.join(active_filters)})")
+
+        if not filtered_drivers:
+            print("  No drivers match the current filters.")
+
+        for idx, d in enumerate(filtered_drivers, start=1):
+            marker = ""
+            if state.player_driver is d:
+                marker = " [CURRENT]"
+
+            age = d.get("age", "?")
+            fame = float(d.get("fame", 0.0))
+            fame_label = describe_driver_fame(fame)
+            career_stage = describe_career_phase(d)
+
+            print(f"{idx}. {d['name']}{marker}")
+            print(f"   Age: {age}  Fame: {fame} ({fame_label})")
+            print(f"   Career: {career_stage}")
+            print(f"   Country: {d.get('country', 'Unknown')}")
+            print(f"   Pace: {d['pace']}  Consistency: {d['consistency']}")
+            print(
+                f"   Aggression: {d['aggression']}  "
+                f"Mech Sympathy: {d['mechanical_sympathy']}  "
+                f"Wet Skill: {d['wet_skill']}"
+            )
+            print(f"   Registered constructor: {d['constructor']}")
+
+        print("\n" + "-" * 40)
+        print("Options:")
+        print("  [number] - View driver profile / hire")
+        print("  [S]      - Search by name")
+        print("  [C]      - Filter by country")
+        print("  [X]      - Clear filters")
+        print("  [T]      - View stats charts")
+        print("  [Enter]  - Back to main menu")
+        
+        choice = input("\n> ").strip()
+
+        if choice == "":
+            return  # back to main menu
+
+        if choice.lower() == "s":
+            search_input = input("\nSearch name (Enter to cancel): ").strip()
+            if search_input == "":
+                continue
+            search_query = search_input
+            continue
+
+        if choice.lower() == "c":
+            selected_country = pick_country_filter(market_drivers)
+            if selected_country:
+                country_filter = selected_country
+            continue
+
+        if choice.lower() == "x":
+            search_query = None
+            country_filter = None
+            continue
+
+        if choice.lower() == "t":
+            show_driver_stats_charts()
+            continue
+
+        if not choice.isdigit():
+            print("Invalid input.")
+            continue
+
+        idx = int(choice)
+        if idx < 1 or idx > len(filtered_drivers):
+            print("Invalid driver selection.")
+            continue
+        selected_driver = filtered_drivers[idx - 1]
+        hired = handle_driver_hire_flow(selected_driver)
+        if hired:
+            return
 
 def describe_driver_fame(fame: float) -> str:
     """

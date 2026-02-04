@@ -642,6 +642,8 @@ class GameState:
 
         self.current_engine = None
         self.current_chassis = None
+        self.current_gearbox = None
+        self.current_brakes = None
         self.car_name = None  # e.g. "Harper X1"
         # Long-term mechanical condition (0–100, higher = healthier)
         self.engine_wear = 100.0        # current engine condition
@@ -721,6 +723,15 @@ class GameState:
         self.chassis_project_chassis_id = None  # which chassis this project is for
         self.chassis_project_stat_target = None  # what stat we're developing
         self.chassis_project_dev_bonus = 0.0     # dev bonus from team
+
+        # Long-term R&D program
+        self.r_and_d_active = False
+        self.r_and_d_focus = None
+        self.r_and_d_progress = 0.0
+        self.r_and_d_insight = 0.0
+        self.r_and_d_rear_engine_backup = None
+        self.r_and_d_rear_engine_active = False
+        self.r_and_d_rear_engine_failed = False
         
         # Track developed upgrades per chassis model (persists between purchases)
         # chassis_id -> {"aero": +delta, "suspension": +delta, "weight": -delta}
@@ -760,8 +771,17 @@ class GameState:
         self.seen_prologue = False           # have we shown the opening story?
         self.demo_driver_death_done = False  # has the final fatal event fired yet?
 
+        # Championship winner tracking
+        self.championship_winner_year = None
+        self.championship_winner_name = None
+        self.championship_winner_shown_year = None
+
         # World economy system
         self.world_economy = WorldEconomy()
+
+        # Rivalries (drivers and constructors)
+        # key -> {"score": int, "last_level": int, "type": "driver"|"constructor"}
+        self.rivalries = {}
         
         # Last race attendance tracking
         self.last_race_attendance = 0
@@ -892,6 +912,40 @@ def ensure_state_fields(state) -> None:
 
     if not hasattr(state, "gallant_driver_promo_done"):
         state.gallant_driver_promo_done = False
+
+    # --- gearbox / brakes placeholders ---
+    if not hasattr(state, "current_gearbox"):
+        state.current_gearbox = None
+    if not hasattr(state, "current_brakes"):
+        state.current_brakes = None
+
+    # --- rivalries ---
+    if not hasattr(state, "rivalries"):
+        state.rivalries = {}
+
+    # --- championship winner tracking ---
+    if not hasattr(state, "championship_winner_year"):
+        state.championship_winner_year = None
+    if not hasattr(state, "championship_winner_name"):
+        state.championship_winner_name = None
+    if not hasattr(state, "championship_winner_shown_year"):
+        state.championship_winner_shown_year = None
+
+    # --- R&D placeholders ---
+    if not hasattr(state, "r_and_d_active"):
+        state.r_and_d_active = False
+    if not hasattr(state, "r_and_d_focus"):
+        state.r_and_d_focus = None
+    if not hasattr(state, "r_and_d_progress"):
+        state.r_and_d_progress = 0.0
+    if not hasattr(state, "r_and_d_insight"):
+        state.r_and_d_insight = 0.0
+    if not hasattr(state, "r_and_d_rear_engine_backup"):
+        state.r_and_d_rear_engine_backup = None
+    if not hasattr(state, "r_and_d_rear_engine_active"):
+        state.r_and_d_rear_engine_active = False
+    if not hasattr(state, "r_and_d_rear_engine_failed"):
+        state.r_and_d_rear_engine_failed = False
 
     # =================================================================
     # NEW MULTI-SPONSOR SYSTEM MIGRATION

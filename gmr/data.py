@@ -423,6 +423,8 @@ constructors = {
         "country": "Italy",
         "engine_id": "enzoni_works_v12",
         "chassis_id": "enzoni_works_monocoque",
+        "gearbox_id": "gbx_5spd_competition",
+        "brakes_id": "brk_disc_early",
         "dev_bonus": 0.25,          # already using this idea
         "dev_attempt_chance": 0.85, # how often they try per offseason
         "prestige": 90.0,           # team prestige (0-100) - the dominant force
@@ -433,6 +435,8 @@ constructors = {
         "country": "Italy",
         "engine_id": "valdieri_works_v12",
         "chassis_id": "valdieri_works_spaceframe",
+        "gearbox_id": "gbx_5spd_competition",
+        "brakes_id": "brk_disc_early",
         "dev_bonus": 0.20,
         "dev_attempt_chance": 0.80,
         "prestige": 70.0,           # team prestige (0-100) - strong but below Enzoni
@@ -443,6 +447,8 @@ constructors = {
         "country": "Germany",
         "engine_id": "silberkern_works_i6",
         "chassis_id": "silberkern_works_spaceframe",
+        "gearbox_id": "gbx_5spd_competition",
+        "brakes_id": "brk_disc_early",
         "dev_bonus": 0.22,
         "dev_attempt_chance": 0.90,  # German engineering precision
         "prestige": 75.0,            # team prestige (0-100) - prestigious German works team
@@ -1147,4 +1153,78 @@ chassis_list = [
 },
 
 
+]
+
+
+# ------------------------------
+# GEARBOXES
+# ------------------------------
+gearboxes = [
+    {
+        "id": "gbx_4spd_basic",
+        "name": "Harper 4-Speed",
+        "supplier": "Inherited",
+        "shift_quality": 4,
+        "reliability_bonus": 0,
+        "price": 0,
+        "year_available": 1947,
+        "description": "A sturdy but slow-shifting 4-speed gearbox.",
+    },
+    {
+        "id": "gbx_4spd_close",
+        "name": "Close-Ratio 4-Speed",
+        "supplier": "Harrington",
+        "shift_quality": 6,
+        "reliability_bonus": 0,
+        "price": 600,
+        "year_available": 1949,
+        "description": "Tighter ratios improve acceleration and driveability.",
+    },
+    {
+        "id": "gbx_5spd_competition",
+        "name": "Competition 5-Speed",
+        "supplier": "Marston & Co.",
+        "shift_quality": 8,
+        "reliability_bonus": -1,
+        "price": 1400,
+        "year_available": 1954,
+        "description": "A modern 5-speed with sharper shifts but more fragile internals.",
+    },
+]
+
+
+# ------------------------------
+# BRAKES
+# ------------------------------
+brakes = [
+    {
+        "id": "brk_drum_basic",
+        "name": "Cast-Iron Drums",
+        "supplier": "Inherited",
+        "braking": 4,
+        "crash_mult": 1.05,
+        "price": 0,
+        "year_available": 1947,
+        "description": "Heavy drum brakes with long stopping distances.",
+    },
+    {
+        "id": "brk_drum_finned",
+        "name": "Finned Drum Brakes",
+        "supplier": "Rossi",
+        "braking": 6,
+        "crash_mult": 1.00,
+        "price": 500,
+        "year_available": 1951,
+        "description": "Better cooling drums improve consistency under braking.",
+    },
+    {
+        "id": "brk_disc_early",
+        "name": "Early Disc Brakes",
+        "supplier": "Brembo",
+        "braking": 8,
+        "crash_mult": 0.90,
+        "price": 1200,
+        "year_available": 1955,
+        "description": "Early disc brakes with far better bite and fade resistance.",
+    },
 ]

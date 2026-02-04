@@ -2,6 +2,8 @@
 
 from gmr.core_time import get_season_week, GameTime
 from gmr.constants import MONTHS, is_championship_year
+from gmr.data import tracks
+from gmr.track_evolution import get_championship_eligible_tracks, get_track_rating, get_track_grade
 
 import random
 
@@ -22,6 +24,69 @@ WORLD_CHAMPIONSHIP_CALENDAR_1951 = [
     ("Ardennes Endurance GP", 32, False),      # Belgian GP - endurance test
     ("Vallone GP", 36, False),                 # Italian GP - season finale
 ]
+
+# Track regions (simple grouping for early-era calendar balance)
+EUROPE_COUNTRIES = {
+    "UK", "France", "Italy", "Switzerland", "Germany", "Belgium", "Spain", "Monaco",
+}
+
+
+def _is_europe_track(track_name: str) -> bool:
+    country = tracks.get(track_name, {}).get("country", "")
+    return country in EUROPE_COUNTRIES
+
+
+def _track_score(track_name: str, year: int) -> float:
+    """Score track by prestige and safety (FIA era-aware)."""
+    prestige = get_track_rating(track_name, "prestige")
+    safety = get_track_rating(track_name, "safety")
+    facilities = get_track_rating(track_name, "facilities")
+    # Prestige weighted highest; safety becomes more important as FIA tightens
+    safety_weight = 0.5 if year <= 1955 else 0.8
+    return prestige * 2.0 + safety * safety_weight + facilities * 0.4
+
+
+def _select_championship_tracks(year: int, slots: int = 7) -> list:
+    """Pick championship tracks by prestige/safety, with early-era travel limits."""
+    eligible = get_championship_eligible_tracks(year)
+
+    # If not enough A-grade, allow B-grade by safety
+    if len(eligible) < slots:
+        b_grade = [t for t in tracks.keys() if get_track_grade(t, year) == "B"]
+        eligible.extend(b_grade)
+
+    # Always try to include key classics if eligible
+    classics = ["Vallone GP", "Ardennes Endurance GP", "Monaco GP"]
+    selected = [t for t in classics if t in eligible]
+
+    # Prioritize Rougemont from 1952 as a new European addition
+    if year >= 1952 and "Rougemont GP" in eligible and "Rougemont GP" not in selected:
+        selected.append("Rougemont GP")
+
+    # Limit non-Europe races early
+    max_non_europe = 1 if year < 1956 else 2
+    non_europe_count = sum(1 for t in selected if not _is_europe_track(t))
+
+    # Priority to Autódromo General San Martín as the first non-Europe add (1953+)
+    if year >= 1953 and "Autódromo General San Martín" in eligible and non_europe_count < max_non_europe:
+        if "Autódromo General San Martín" not in selected:
+            selected.append("Autódromo General San Martín")
+            non_europe_count += 1
+
+    # Score remaining candidates
+    remaining = [t for t in eligible if t not in selected]
+    remaining.sort(key=lambda t: _track_score(t, year), reverse=True)
+
+    for t in remaining:
+        if len(selected) >= slots:
+            break
+        if not _is_europe_track(t) and non_europe_count >= max_non_europe:
+            continue
+        selected.append(t)
+        if not _is_europe_track(t):
+            non_europe_count += 1
+
+    return selected[:slots]
 
 # Track tiers for clash rules and championship eligibility
 # Grade A: World Championship caliber - cannot clash with anything
@@ -129,15 +194,39 @@ def generate_calendar_for_year(year):
 
     cal = {}
     clashes = {}  # week -> [race1, race2]
+    notes = []
 
     # ==========================================================================
     # WORLD CHAMPIONSHIP ERA (1950+)
     # ==========================================================================
     if is_championship_year(year):
-        # Place all World Championship races at their fixed weeks
+        # 1951 layout is fixed
         champ_races = get_world_championship_races(year)
-        for race_name, week, _ in champ_races:
-            cal[week] = race_name
+        if year == 1951:
+            for race_name, week, _ in champ_races:
+                cal[week] = race_name
+        else:
+            # Keep 1951 week layout but rotate tracks by prestige/safety
+            weeks = [week for _, week, _ in champ_races]
+            selected_tracks = _select_championship_tracks(year, slots=len(weeks))
+            for week, track_name in zip(weeks, selected_tracks):
+                cal[week] = track_name
+            # Calendar notes for flavor
+            non_europe = [t for t in selected_tracks if not _is_europe_track(t)]
+            notes.append(
+                f"FIA selection emphasizes safety and prestige in {year}."
+            )
+            if non_europe:
+                notes.append(
+                    f"Non‑Europe travel capped; selected: {', '.join(non_europe)}."
+                )
+            for t in selected_tracks:
+                grade = get_track_grade(t, year)
+                safety = get_track_rating(t, "safety")
+                prestige = get_track_rating(t, "prestige")
+                notes.append(
+                    f"{t} (Grade {grade}) — Safety {safety}/10, Prestige {prestige}/10."
+                )
     else:
         # Pre-championship era: use original logic
         # ---- Anchors (fixed major events) ----
@@ -157,26 +246,26 @@ def generate_calendar_for_year(year):
         if buenos_aires_pool:
             cal[rng.choice(buenos_aires_pool)] = "Autódromo General San Martín"
     
-    # Spanish GP from 1951 onwards (not in original 1950 championship)
-    if year >= 1951:
+    # Spanish GP (Europe) from 1952 onwards (not in original 1951 championship)
+    if year >= 1952:
         spain_pool = [w for w in range(16, 22) if w not in cal]
         if spain_pool:
             cal[rng.choice(spain_pool)] = "Circuito de las Palmas"
     
-    # South African GP from 1951 (early year due to Southern hemisphere)
-    if year >= 1951:
+    # South African GP from 1958 (limit early non-Europe races)
+    if year >= 1958:
         south_africa_pool = [w for w in range(9, 14) if w not in cal]
         if south_africa_pool:
             cal[rng.choice(south_africa_pool)] = "Kingsport Coastal Circuit"
     
-    # Moroccan GP from 1952
-    if year >= 1952:
+    # Moroccan GP from 1958
+    if year >= 1958:
         morocco_pool = [w for w in range(36, 40) if w not in cal]
         if morocco_pool:
             cal[rng.choice(morocco_pool)] = "Circuit de Sable d'Or"
     
-    # Japanese GP from 1952 (autumn race)
-    if year >= 1952:
+    # Japanese GP from 1959 (autumn race)
+    if year >= 1959:
         japan_pool = [w for w in range(32, 38) if w not in cal]
         if japan_pool:
             cal[rng.choice(japan_pool)] = "Fuji Kogen Circuit"
@@ -195,10 +284,10 @@ def generate_calendar_for_year(year):
             "Château-des-Prés GP",
         ])
     
-    # Add Americas races from 1948
-    if year >= 1948:
+    # Add Americas races from 1952 (limit early non-Europe races)
+    if year >= 1952:
         fillers.extend([
-            "Circuito da Estrada Velha", "Circuito da Estrada Velha",
+            "Circuito da Estrada Velha",
             "Copper State Circuit",
         ])
 
@@ -280,17 +369,24 @@ def generate_calendar_for_year(year):
 
     # Store clashes globally for this year (hacky but simple)
     _year_clashes[year] = clashes
+    _year_calendar_notes[year] = notes
 
     return dict(sorted(cal.items()))
 
 
 # Global storage for clashes by year
 _year_clashes = {}
+_year_calendar_notes = {}
 
 
 def get_clashes_for_year(year):
     """Get the clash schedule for a year (must call generate_calendar_for_year first)."""
     return _year_clashes.get(year, {})
+
+
+def get_calendar_notes(year):
+    """Get calendar selection notes for a year."""
+    return _year_calendar_notes.get(year, [])
 
 
 def format_week_date(time, season_week):
@@ -318,6 +414,13 @@ def show_calendar(state, time, race_calendar):
 
     print("\n=== Season Calendar ===")
     print(f"Year: {time.year}")
+    notes = get_calendar_notes(time.year)
+    if notes:
+        print("\nFIA Calendar Notes:")
+        for n in notes[:8]:
+            print(f"  • {n}")
+        if len(notes) > 8:
+            print("  • (More detailed notes available in the archives.)")
     print("------------------------")
 
     # Collect all race weeks (including clash weeks)

@@ -298,8 +298,18 @@ def maybe_offer_sponsor(state, time):
     if not getattr(state, "ever_completed_vallone", False) and len(getattr(state, 'race_history', [])) < 1:
         return
     
-    # Random chance (35% per eligible week - increased for better gameplay)
-    if random.random() > 0.35:
+    # Random chance per eligible week (era + prestige tuned)
+    if time.year <= 1950:
+        base_chance = 0.25
+    elif time.year <= 1957:
+        base_chance = 0.35
+    else:
+        base_chance = 0.45
+
+    prestige_bonus = min(0.10, max(0.0, (state.prestige - 2.0) * 0.015))
+    offer_chance = min(0.60, base_chance + prestige_bonus)
+
+    if random.random() > offer_chance:
         return
     
     # Check if we have room for more sponsors

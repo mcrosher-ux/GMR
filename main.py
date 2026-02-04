@@ -20,6 +20,7 @@ from gmr.careers import (
     apply_offseason_ageing_and_retirement,
     offseason_fame_decay,
     maybe_expand_enzoni_to_three_cars,
+    init_ai_contracts_if_missing,
     maybe_refill_valdieri_drivers,
     maybe_release_surviving_enzoni_driver,
 )
@@ -36,7 +37,11 @@ from gmr.ui_garage import (
     show_garage,
     show_engine_shop,
     show_chassis_shop,
+    show_gearbox_shop,
+    show_brake_shop,
     manage_chassis_development,
+    manage_r_and_d_program,
+    maybe_progress_r_and_d,
     handle_repairs,
     handle_test_day,
     can_book_test_day,
@@ -471,6 +476,9 @@ def run_game():
             # New blood first (so hiring pool exists)
             spawn_new_rookies(state, time)
 
+            # Ensure AI teams have contract lengths on their drivers
+            init_ai_contracts_if_missing(state, time)
+
             # Works-team offseason updates
             maybe_expand_enzoni_to_three_cars(state, time)
             maybe_refill_valdieri_drivers(state, time)
@@ -519,6 +527,9 @@ def run_game():
         maybe_offer_sponsor(state, time)
         maybe_gallant_leaf_advert(state, time)
         maybe_sponsor_media_event(state, time)
+
+        # Weekly R&D tick
+        maybe_progress_r_and_d(state, time)
 
    
 
@@ -688,11 +699,12 @@ def run_game():
                 print("1. View Garage Info")
                 print("2. Racecar Parts")
                 print("3. Chassis Development Program")
-                print("4. Repairs & Maintenance")
-                print("5. Book a Test Day")
-                print("6. Garage Upgrades")
-                print("7. Name / rename car")
-                print("8. Back to Main Menu")
+                print("4. R&D Program")
+                print("5. Repairs & Maintenance")
+                print("6. Book a Test Day")
+                print("7. Garage Upgrades")
+                print("8. Name / rename car")
+                print("9. Back to Main Menu")
 
                 sub_choice = input("> ").strip()
 
@@ -704,7 +716,9 @@ def run_game():
                         print("\n=== Racecar Parts ===")
                         print("1. Engines")
                         print("2. Chassis")
-                        print("3. Back to Garage Menu")
+                        print("3. Gearboxes")
+                        print("4. Brakes")
+                        print("5. Back to Garage Menu")
 
                         parts_choice = input("> ").strip()
 
@@ -713,20 +727,26 @@ def run_game():
                         elif parts_choice == "2":
                             show_chassis_shop(state)
                         elif parts_choice == "3":
+                            show_gearbox_shop(state, time)
+                        elif parts_choice == "4":
+                            show_brake_shop(state, time)
+                        elif parts_choice == "5":
                             break
                         else:
                             print("Invalid choice.")
                 elif sub_choice == "3":
                     manage_chassis_development(state)
                 elif sub_choice == "4":
-                    handle_repairs(state)
+                    manage_r_and_d_program(state, time)
                 elif sub_choice == "5":
-                    handle_test_day(state, time)
+                    handle_repairs(state)
                 elif sub_choice == "6":
-                    handle_garage_upgrades(state, time)
+                    handle_test_day(state, time)
                 elif sub_choice == "7":
-                    rename_car(state)
+                    handle_garage_upgrades(state, time)
                 elif sub_choice == "8":
+                    rename_car(state)
+                elif sub_choice == "9":
                     break
                 else:
                     print("Invalid choice.")
