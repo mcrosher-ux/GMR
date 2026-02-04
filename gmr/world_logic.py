@@ -540,84 +540,84 @@ def get_regen_age_for_year(year: int) -> int:
     elif year <= 1960:
         # Younger talent showing up more regularly
         return random.randint(22, 35)
-
-
-    def _rivalry_key(prefix: str, a: str, b: str) -> str:
-        left, right = sorted([a, b])
-        return f"{prefix}:{left}|{right}"
-
-
-    def _bump_rivalry(state, key: str, amount: int, rivalry_type: str, headline: str, year: int):
-        entry = state.rivalries.get(key, {"score": 0, "last_level": 0, "type": rivalry_type})
-        entry["score"] += amount
-        state.rivalries[key] = entry
-
-        # Escalation thresholds
-        level = 0
-        if entry["score"] >= 3:
-            level = 1
-        if entry["score"] >= 6:
-            level = 2
-        if entry["score"] >= 10:
-            level = 3
-
-        if level > entry["last_level"]:
-            entry["last_level"] = level
-            state.rivalries[key] = entry
-            state.news.append(headline)
-
-        # Occasional cheating accusations once rivalry is hot
-        if entry["score"] >= 6 and random.random() < 0.2:
-            state.news.append("📰 Accusations fly in the paddock as tensions boil over between rivals.")
-
-
-    def update_rivalries_after_race(state, finishers, dnf_drivers, retire_reasons, race_name, year):
-        """
-        Simple rivalry system:
-        - Close finishes between drivers from different constructors
-        - Crash DNFs can trigger blame
-        - Constructor rivalries when P1/P2 are different teams
-        """
-        if not hasattr(state, "rivalries"):
-            state.rivalries = {}
-
-        # Constructor rivalry: P1 vs P2
-        if len(finishers) >= 2:
-            p1_driver, _ = finishers[0]
-            p2_driver, _ = finishers[1]
-            c1 = p1_driver.get("constructor", "Independent")
-            c2 = p2_driver.get("constructor", "Independent")
-            if c1 != c2 and c1 != "Independent" and c2 != "Independent":
-                key = _rivalry_key("ctor", c1, c2)
-                headline = f"🔥 Rivalry flares: {c1} and {c2} trade blows at {race_name}."
-                _bump_rivalry(state, key, 2, "constructor", headline, year)
-
-        # Driver rivalry: close finishers (positions 1–6)
-        top_finishers = finishers[:6]
-        for i in range(len(top_finishers) - 1):
-            d1, _ = top_finishers[i]
-            d2, _ = top_finishers[i + 1]
-            if d1.get("constructor") != d2.get("constructor"):
-                key = _rivalry_key("driver", d1.get("name", ""), d2.get("name", ""))
-                headline = (
-                    f"🔥 Driver rivalry brewing: {d1.get('name')} and {d2.get('name')} clash on track at {race_name}."
-                )
-                _bump_rivalry(state, key, 1, "driver", headline, year)
-
-        # Crash blame: if a crash DNF happened, stir a rival
-        crash_dnfs = [d for d in dnf_drivers if retire_reasons.get(d.get("name")) == "crash"]
-        if crash_dnfs and finishers:
-            blamed = random.choice(finishers)[0]
-            victim = random.choice(crash_dnfs)
-            if victim.get("constructor") != blamed.get("constructor"):
-                key = _rivalry_key("driver", victim.get("name", ""), blamed.get("name", ""))
-                headline = (
-                    f"🗞️ Tensions rise: {victim.get('name')} accuses {blamed.get('name')} after a crash at {race_name}."
-                )
-                _bump_rivalry(state, key, 2, "driver", headline, year)
     else:
         # Proper modern era – young hotshoes
         return random.randint(18, 30)
+
+
+def _rivalry_key(prefix: str, a: str, b: str) -> str:
+    left, right = sorted([a, b])
+    return f"{prefix}:{left}|{right}"
+
+
+def _bump_rivalry(state, key: str, amount: int, rivalry_type: str, headline: str, year: int):
+    entry = state.rivalries.get(key, {"score": 0, "last_level": 0, "type": rivalry_type})
+    entry["score"] += amount
+    state.rivalries[key] = entry
+
+    # Escalation thresholds
+    level = 0
+    if entry["score"] >= 3:
+        level = 1
+    if entry["score"] >= 6:
+        level = 2
+    if entry["score"] >= 10:
+        level = 3
+
+    if level > entry["last_level"]:
+        entry["last_level"] = level
+        state.rivalries[key] = entry
+        state.news.append(headline)
+
+    # Occasional cheating accusations once rivalry is hot
+    if entry["score"] >= 6 and random.random() < 0.2:
+        state.news.append("📰 Accusations fly in the paddock as tensions boil over between rivals.")
+
+
+def update_rivalries_after_race(state, finishers, dnf_drivers, retire_reasons, race_name, year):
+    """
+    Simple rivalry system:
+    - Close finishes between drivers from different constructors
+    - Crash DNFs can trigger blame
+    - Constructor rivalries when P1/P2 are different teams
+    """
+    if not hasattr(state, "rivalries"):
+        state.rivalries = {}
+
+    # Constructor rivalry: P1 vs P2
+    if len(finishers) >= 2:
+        p1_driver, _ = finishers[0]
+        p2_driver, _ = finishers[1]
+        c1 = p1_driver.get("constructor", "Independent")
+        c2 = p2_driver.get("constructor", "Independent")
+        if c1 != c2 and c1 != "Independent" and c2 != "Independent":
+            key = _rivalry_key("ctor", c1, c2)
+            headline = f"🔥 Rivalry flares: {c1} and {c2} trade blows at {race_name}."
+            _bump_rivalry(state, key, 2, "constructor", headline, year)
+
+    # Driver rivalry: close finishers (positions 1–6)
+    top_finishers = finishers[:6]
+    for i in range(len(top_finishers) - 1):
+        d1, _ = top_finishers[i]
+        d2, _ = top_finishers[i + 1]
+        if d1.get("constructor") != d2.get("constructor"):
+            key = _rivalry_key("driver", d1.get("name", ""), d2.get("name", ""))
+            headline = (
+                f"🔥 Driver rivalry brewing: {d1.get('name')} and {d2.get('name')} clash on track at {race_name}."
+            )
+            _bump_rivalry(state, key, 1, "driver", headline, year)
+
+    # Crash blame: if a crash DNF happened, stir a rival
+    crash_dnfs = [d for d in dnf_drivers if retire_reasons.get(d.get("name")) == "crash"]
+    if crash_dnfs and finishers:
+        blamed = random.choice(finishers)[0]
+        victim = random.choice(crash_dnfs)
+        if victim.get("constructor") != blamed.get("constructor"):
+            key = _rivalry_key("driver", victim.get("name", ""), blamed.get("name", ""))
+            headline = (
+                f"🗞️ Tensions rise: {victim.get('name')} accuses {blamed.get('name')} after a crash at {race_name}."
+            )
+            _bump_rivalry(state, key, 2, "driver", headline, year)
 
 def get_retirement_ages_for_year(year: int):
     """
