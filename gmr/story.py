@@ -1,6 +1,7 @@
 # gmr/story
 from gmr.data import engines, chassis_list
-from gmr.world_logic import calculate_car_speed
+from gmr.world_logic import calculate_car_speed, calculate_car_reliability
+from gmr.data import gearboxes, brakes
 from gmr.data import drivers
 import random
 
@@ -295,6 +296,12 @@ def inject_demo_prologue(state, time):
     starting_chassis = next(c for c in chassis_list if c["id"] == "dad_chassis")
     state.current_chassis = starting_chassis
 
+    # Starting gearbox and brakes
+    starting_gearbox = next(g for g in gearboxes if g["id"] == "gbx_4spd_basic")
+    starting_brakes = next(b for b in brakes if b["id"] == "brk_drum_basic")
+    state.current_gearbox = starting_gearbox
+    state.current_brakes = starting_brakes
+
     # Dad's old chassis is already well used
     state.chassis_wear = 70.0   # 70% condition to start with
     # Engine starts mechanically "refreshed" for now
@@ -303,8 +310,8 @@ def inject_demo_prologue(state, time):
 
 
     # Combine into initial car stats
-    state.car_speed = calculate_car_speed(starting_engine, starting_chassis)
-    state.car_reliability = starting_engine["reliability"]
+    state.car_speed = calculate_car_speed(starting_engine, starting_chassis, starting_gearbox, starting_brakes)
+    state.car_reliability = calculate_car_reliability(starting_engine, starting_gearbox)
 
     # Player driver is None for now
     state.player_driver = None

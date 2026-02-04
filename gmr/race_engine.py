@@ -6,6 +6,7 @@ import random
 from gmr.constants import (
     CONSTRUCTOR_SHARE,
     POINTS_TABLE,
+    FASTEST_LAP_POINT_YEAR,
     WEATHER_WET_CHANCE,
     get_reliability_mult,
     get_crash_mult,
@@ -13,14 +14,15 @@ from gmr.constants import (
     get_prize_for_race_and_pos,
     is_championship_year,
 )
-from gmr.calendar import is_championship_race
-from gmr.data import drivers, tracks, constructors, engines, chassis_list
-from gmr.world_logic import driver_enters_event, get_car_speed_for_track, calculate_car_speed
+from gmr.calendar import is_championship_race, generate_calendar_for_year
+from gmr.data import drivers, tracks, constructors, engines, chassis_list, gearboxes, brakes
+from gmr.world_logic import driver_enters_event, get_car_speed_for_track, calculate_car_speed, calculate_car_reliability, update_rivalries_after_race
 from gmr.careers import (
     update_fame_after_race,
     update_driver_progress,
     grant_participation_xp_for_dnfs,
     tick_driver_contract_after_race_end,
+    tick_ai_contracts_after_race_end,
     update_morale_after_race,
     update_morale_for_slow_car,
     check_driver_walkout,
@@ -94,6 +96,17 @@ def format_tyre_bar(wear_pct):
     return f"[{'█' * filled}{'░' * empty}] {state.capitalize()}"
 
 
+def get_tyre_wear_base(year):
+    """Era tuning: early tyres degrade faster, later eras improve."""
+    if year <= 1950:
+        return 19.0
+    if year <= 1955:
+        return 18.0
+    if year <= 1960:
+        return 17.0
+    return 16.0
+
+
 # =============================================================================
 # RACE SIMULATOR - Stateful stage-by-stage position tracking
 # =============================================================================
@@ -124,7 +137,7 @@ class RaceSimulator:
         
         # Track race state
         self.dnf_drivers = []
-        self.retire_reasons = {}  # name -> "engine" or "crash"
+        self.retire_reasons = {}  # name -> "engine", "gearbox", "brakes", "crash", etc.
         self.active_drivers = set(d.get("name") for d in self.current_positions)
         
         # Track cumulative performance for each driver
@@ -178,6 +191,11 @@ class RaceSimulator:
                 continue
             
             car_speed, car_reliability = get_ai_car_stats(d.get("constructor"))
+            ctor = constructors.get(d.get("constructor", ""), {})
+            gb_id = ctor.get("gearbox_id")
+            br_id = ctor.get("brakes_id")
+            gb = next((g for g in gearboxes if g.get("id") == gb_id), None) if gb_id else None
+            br = next((b for b in brakes if b.get("id") == br_id), None) if br_id else None
             mech = d.get("mechanical_sympathy", 5)
             aggression = d.get("aggression", 5)
             consistency = d.get("consistency", 5)
@@ -192,6 +210,26 @@ class RaceSimulator:
             if self.is_hot:
                 heat_intensity = self.track_profile.get("heat_intensity", 1.0)
                 engine_fail_chance *= heat_intensity
+
+            # Gearbox failure chance
+            gearbox_fail_chance = 0.0
+            if gb:
+                gb_penalty = max(0.0, -float(gb.get("reliability_bonus", 0)))
+                gearbox_fail_chance = (0.006 + gb_penalty * 0.004) * reliability_mult
+                gearbox_fail_chance *= (1 + (5 - mech) * 0.04)
+                gearbox_fail_chance *= self.track_profile.get("engine_danger", 1.0)
+                gearbox_fail_chance *= self.race_length_factor
+
+            # Brake failure chance
+            brake_fail_chance = 0.0
+            if br:
+                braking = float(br.get("braking", 5))
+                brake_fail_chance = (0.003 + max(0.0, 6 - braking) * 0.002) * crash_mult
+                brake_fail_chance *= (1 + (5 - mech) * 0.03)
+                brake_fail_chance *= self.track_profile.get("crash_danger", 1.0)
+                brake_fail_chance *= self.race_length_factor
+                if self.is_hot:
+                    brake_fail_chance *= 1.2
             
             # Crash chance
             base_crash_chance = (11 - consistency) * 0.012
@@ -226,6 +264,38 @@ class RaceSimulator:
                     "type": "engine",
                     "stage_idx": random.randint(0, len(STAGE_LABELS) - 1),
                     "breakdown": engine_factors,
+                }
+            elif random.random() < gearbox_fail_chance:
+                gearbox_factors = []
+                if gb and float(gb.get("reliability_bonus", 0)) < 0:
+                    gearbox_factors.append("fragile gearbox")
+                if mech < 5:
+                    gearbox_factors.append("poor mechanical sympathy")
+                if self.track_profile.get("engine_danger", 1.0) > 1.1:
+                    gearbox_factors.append("demanding circuit")
+                if not gearbox_factors:
+                    gearbox_factors.append("bad luck")
+
+                incidents[d.get("name")] = {
+                    "type": "gearbox",
+                    "stage_idx": random.randint(0, len(STAGE_LABELS) - 1),
+                    "breakdown": gearbox_factors,
+                }
+            elif random.random() < brake_fail_chance:
+                brake_factors = []
+                if br and float(br.get("braking", 5)) < 5:
+                    brake_factors.append("weak brakes")
+                if self.is_hot:
+                    brake_factors.append("brake fade in the heat")
+                if self.track_profile.get("crash_danger", 1.0) > 1.1:
+                    brake_factors.append("heavy braking zones")
+                if not brake_factors:
+                    brake_factors.append("bad luck")
+
+                incidents[d.get("name")] = {
+                    "type": "brakes",
+                    "stage_idx": random.randint(0, len(STAGE_LABELS) - 1),
+                    "breakdown": brake_factors,
                 }
             elif random.random() < crash_chance:
                 # Build breakdown for crash
@@ -269,7 +339,7 @@ class RaceSimulator:
         Calculate tyre wear for a driver this stage.
         
         Factors:
-        - push_mult: 0.7 (conserve), 1.0 (balanced), 1.4 (push)
+        - push_mult: 0.6 (conserve), 1.0 (balanced), 1.7 (push)
         - track_roughness: from track profile
         - suspension: higher = less wear
         - wet conditions: less wear (rubber doesn't overheat)
@@ -287,8 +357,8 @@ class RaceSimulator:
             _, car_reliability = get_ai_car_stats(driver.get("constructor"))
             suspension = 5 + (car_reliability - 5) * 0.5  # Higher reliability = better suspension
         
-        # Base wear per stage
-        base_wear = TYRE_WEAR_BASE
+        # Base wear per stage (era tuned)
+        base_wear = get_tyre_wear_base(self.time.year)
         
         # Push level affects wear significantly
         wear = base_wear * push_mult
@@ -396,7 +466,7 @@ class RaceSimulator:
         
         return False
 
-    def simulate_stage(self, stage_idx, player_strategy_mult=1.0, player_pitting=False):
+    def simulate_stage(self, stage_idx, player_strategy_mult=1.0, player_wear_mult=1.0, player_pitting=False):
         """
         Simulate one stage of the race.
         Returns dict with: overtakes, incidents, new_standings, stage_label
@@ -442,6 +512,24 @@ class RaceSimulator:
                             ]
                             stage_result["incidents"].append(random.choice(flavors))
                             stage_result["incidents"].append(f"   └─ Cause: {reason_text}")
+                        elif incident_info["type"] == "gearbox":
+                            flavors = [
+                                f"{name} loses drive as the gearbox fails",
+                                f"A broken gearbox strands {name} on the circuit",
+                                f"{name} retires with a terminal gearbox problem",
+                                f"Gearbox trouble ends {name}'s race",
+                            ]
+                            stage_result["incidents"].append(random.choice(flavors))
+                            stage_result["incidents"].append(f"   └─ Cause: {reason_text}")
+                        elif incident_info["type"] == "brakes":
+                            flavors = [
+                                f"{name} pulls off with failing brakes",
+                                f"Brake failure forces {name} to retire",
+                                f"{name} reports total brake fade and stops",
+                                f"A brake issue ends {name}'s race",
+                            ]
+                            stage_result["incidents"].append(random.choice(flavors))
+                            stage_result["incidents"].append(f"   └─ Cause: {reason_text}")
                         else:
                             flavors = [
                                 f"{name} spins into the barriers and is out",
@@ -468,7 +556,11 @@ class RaceSimulator:
             # Get player car stats
             car_reliability = 5  # Default
             if self.game_state.current_engine:
-                car_reliability = self.game_state.current_engine.get("reliability", 5)
+                car_reliability = calculate_car_reliability(
+                    self.game_state.current_engine,
+                    getattr(self.game_state, "current_gearbox", None),
+                )
+            player_gearbox = getattr(self.game_state, "current_gearbox", None)
             
             # Engine condition affects reliability
             engine_wear = getattr(self.game_state, 'engine_wear', 100)
@@ -491,6 +583,16 @@ class RaceSimulator:
             
             # Player strategy affects risk
             base_engine_fail *= self.player_engine_mult
+
+            # Gearbox failure chance (per stage)
+            gearbox_fail = 0.0
+            if player_gearbox:
+                gb_penalty = max(0.0, -float(player_gearbox.get("reliability_bonus", 0)))
+                gearbox_fail = (0.004 + gb_penalty * 0.004) * reliability_mult
+                gearbox_fail *= (1 + (5 - mech) * 0.04)
+                gearbox_fail *= self.track_profile.get("engine_danger", 1.0)
+                gearbox_fail *= self.race_length_factor / 3.0
+                gearbox_fail *= self.player_engine_mult
             
             # Hot conditions
             if self.is_hot:
@@ -510,6 +612,23 @@ class RaceSimulator:
             
             # Player strategy affects crash risk
             base_crash *= self.player_crash_mult
+
+            # Brakes reduce crash risk slightly
+            player_brakes = getattr(self.game_state, "current_brakes", None)
+            if player_brakes:
+                base_crash *= float(player_brakes.get("crash_mult", 1.0))
+
+            # Brake failure chance (per stage)
+            brake_fail = 0.0
+            if player_brakes:
+                braking = float(player_brakes.get("braking", 5))
+                brake_fail = (0.003 + max(0.0, 6 - braking) * 0.002) * crash_mult
+                brake_fail *= (1 + (5 - mech) * 0.03)
+                brake_fail *= self.track_profile.get("crash_danger", 1.0)
+                brake_fail *= self.race_length_factor / 3.0
+                if self.is_hot:
+                    brake_fail *= 1.2
+                brake_fail *= self.player_crash_mult
             
             # Wet conditions
             if self.is_wet:
@@ -523,6 +642,10 @@ class RaceSimulator:
             player_incident = None
             if random.random() < base_engine_fail:
                 player_incident = "engine"
+            elif random.random() < gearbox_fail:
+                player_incident = "gearbox"
+            elif random.random() < brake_fail:
+                player_incident = "brakes"
             elif random.random() < base_crash:
                 player_incident = "crash"
             
@@ -565,6 +688,48 @@ class RaceSimulator:
                     stage_result["incidents"].append(random.choice(flavors))
                     stage_result["incidents"].append(f"   └─ Cause: {engine_factors[0]}")
                     stage_result["incidents"].append(f"⚠️ Engine damage: -{engine_damage:.0f}% condition")
+                elif player_incident == "gearbox":
+                    gearbox_factors = []
+                    if player_gearbox and float(player_gearbox.get("reliability_bonus", 0)) < 0:
+                        gearbox_factors.append("fragile gearbox")
+                    if mech < 5:
+                        gearbox_factors.append("poor mechanical sympathy")
+                    if self.track_profile.get("engine_danger", 1.0) > 1.1:
+                        gearbox_factors.append("demanding circuit")
+                    if self.player_engine_mult > 1.1:
+                        gearbox_factors.append("aggressive push strategy")
+                    if not gearbox_factors:
+                        gearbox_factors.append("bad luck")
+
+                    flavors = [
+                        f"⚙️ {player_name}'s gearbox fails — drive is lost!",
+                        f"⚙️ A gearbox failure ends {player_name}'s race.",
+                        f"⚙️ {player_name} retires with a broken gearbox.",
+                        f"⚙️ Grinding gears — gearbox failure for {player_name}.",
+                    ]
+                    stage_result["incidents"].append(random.choice(flavors))
+                    stage_result["incidents"].append(f"   └─ Cause: {gearbox_factors[0]}")
+                elif player_incident == "brakes":
+                    brake_factors = []
+                    if player_brakes and float(player_brakes.get("braking", 5)) < 5:
+                        brake_factors.append("weak brakes")
+                    if self.is_hot:
+                        brake_factors.append("brake fade in the heat")
+                    if self.track_profile.get("crash_danger", 1.0) > 1.1:
+                        brake_factors.append("heavy braking zones")
+                    if self.player_crash_mult > 1.1:
+                        brake_factors.append("pushing too hard")
+                    if not brake_factors:
+                        brake_factors.append("bad luck")
+
+                    flavors = [
+                        f"🛑 {player_name} loses the brakes and must retire!",
+                        f"🛑 Brake failure — {player_name}'s race is over.",
+                        f"🛑 The pedal goes long; {player_name} pulls off with brake issues.",
+                        f"🛑 Total brake fade ends {player_name}'s race.",
+                    ]
+                    stage_result["incidents"].append(random.choice(flavors))
+                    stage_result["incidents"].append(f"   └─ Cause: {brake_factors[0]}")
                 else:
                     # Build breakdown for crash
                     crash_factors = []
@@ -666,7 +831,7 @@ class RaceSimulator:
             
             # Determine push level for this driver this stage
             if is_player:
-                push_mult = player_strategy_mult
+                push_mult = player_wear_mult
             else:
                 # AI push level based on aggression and position
                 aggression = d.get("aggression", 5)
@@ -1138,9 +1303,9 @@ def get_player_stage_decision(stage_idx, is_wet, is_hot, simulator, state):
             print("\n  📉 Tyres are getting worn, losing grip...")
     
     print("\n  Choose your approach:")
-    print("  1) PUSH — Attack hard (+5% pace, +40% tyre wear, +15% incident risk)")
+    print("  1) PUSH — Attack hard (+5% pace, +70% tyre wear, +15% incident risk)")
     print("  2) BALANCED — Steady pace, normal wear")
-    print("  3) CONSERVE — Protect tyres (-5% pace, -30% tyre wear, -20% incident risk)")
+    print("  3) CONSERVE — Protect tyres (-5% pace, -40% tyre wear, -20% incident risk)")
     
     # Pit stop option (only in pit window stages and if not already pitted)
     can_pit = stage_idx in PIT_WINDOW_STAGES
@@ -1159,7 +1324,7 @@ def get_player_stage_decision(stage_idx, is_wet, is_hot, simulator, state):
                 "performance_mult": 1.05,
                 "engine_fail_mult": 1.15,
                 "crash_mult": 1.15,
-                "wear_mult": 1.4,
+                "wear_mult": 1.7,
                 "pitting": False,
             }
         elif choice == "2" or choice == "":
@@ -1177,7 +1342,7 @@ def get_player_stage_decision(stage_idx, is_wet, is_hot, simulator, state):
                 "performance_mult": 0.95,
                 "engine_fail_mult": 0.85,
                 "crash_mult": 0.80,
-                "wear_mult": 0.7,
+                "wear_mult": 0.6,
                 "pitting": False,
             }
         elif choice == "4" and can_pit and not already_pitted:
@@ -1235,6 +1400,7 @@ def run_interactive_race_stages(simulator, state, race_name, is_wet, is_hot):
             stage_result = simulator.simulate_stage(
                 stage_idx, 
                 player_strategy_mult=decision["performance_mult"],
+                player_wear_mult=decision["wear_mult"],
                 player_pitting=decision["pitting"]
             )
             
@@ -1254,7 +1420,12 @@ def run_interactive_race_stages(simulator, state, race_name, is_wet, is_hot):
                 input("\n  Press Enter to continue to next stage...")
         else:
             # Player is out - simulate remaining stages automatically
-            stage_result = simulator.simulate_stage(stage_idx, player_strategy_mult=1.0, player_pitting=False)
+            stage_result = simulator.simulate_stage(
+                stage_idx,
+                player_strategy_mult=1.0,
+                player_wear_mult=1.0,
+                player_pitting=False
+            )
             
             if stage_result:
                 # Show abbreviated results for remaining stages
@@ -2390,12 +2561,16 @@ def get_ai_car_stats(constructor_name):
     # Parts-based path FIRST (only if ids are defined)
     eng_id = c.get("engine_id")
     ch_id = c.get("chassis_id")
+    gb_id = c.get("gearbox_id")
+    br_id = c.get("brakes_id")
     if eng_id and ch_id:
         eng = next((e for e in engines if e["id"] == eng_id), None)
         ch = next((x for x in chassis_list if x["id"] == ch_id), None)
+        gb = next((g for g in gearboxes if g["id"] == gb_id), None) if gb_id else None
+        br = next((b for b in brakes if b["id"] == br_id), None) if br_id else None
         if eng and ch:
-            speed = calculate_car_speed(eng, ch)
-            reliability = eng.get("reliability", 5)
+            speed = calculate_car_speed(eng, ch, gb, br)
+            reliability = calculate_car_reliability(eng, gb)
             return speed, reliability
 
     # Legacy fallback (Independents stay here)
@@ -2753,6 +2928,73 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
         if player_finish_pos is not None:
             from gmr.sponsorship import update_tyre_sponsor_progress
             update_tyre_sponsor_progress(state, player_finish_pos, is_podium, is_win)
+
+
+def maybe_show_championship_clinch(state, time, season_week):
+    """Show a big championship clinch page as soon as the title is secured."""
+    if not is_championship_year(time.year):
+        return
+
+    if not getattr(state, "points", None):
+        return
+
+    if getattr(state, "championship_winner_year", None) == time.year:
+        return
+
+    standings = sorted(state.points.items(), key=lambda x: x[1], reverse=True)
+    if len(standings) < 2:
+        return
+
+    leader_name, leader_pts = standings[0]
+    second_name, second_pts = standings[1]
+
+    # Remaining championship races
+    race_calendar = generate_calendar_for_year(time.year)
+    remaining = [
+        wk for wk, rn in race_calendar.items()
+        if wk > season_week and is_championship_race(rn, time.year)
+    ]
+    races_left = len(remaining)
+
+    max_per_race = POINTS_TABLE[0]
+    if time.year >= FASTEST_LAP_POINT_YEAR:
+        max_per_race += 1
+    max_points_left = races_left * max_per_race
+
+    if leader_pts <= second_pts + max_points_left:
+        return
+
+    # Clinched
+    state.championship_winner_year = time.year
+    state.championship_winner_name = leader_name
+    state.championship_winner_shown_year = time.year
+
+    # Resolve constructor
+    winner_ctor = "Independent"
+    for d in drivers:
+        if d.get("name") == leader_name:
+            winner_ctor = d.get("constructor", "Independent")
+            break
+
+    # Big gated page
+    print("\n" + "=" * 64)
+    print("🏆🏆🏆 WORLD CHAMPIONSHIP CLINCHED 🏆🏆🏆")
+    print("=" * 64)
+    print(f"Year: {time.year}")
+    print(f"Champion: {leader_name} ({winner_ctor})")
+    print(f"Points: {leader_pts}")
+    print(f"Margin: +{leader_pts - second_pts} over {second_name}")
+    print(f"Races remaining: {races_left}")
+    print("\nTop 5 standings:")
+    for pos, (name, pts) in enumerate(standings[:5], start=1):
+        print(f"  {pos}. {name} — {pts} pts")
+    print("\nPaddock reaction: celebrations erupt as the title is sealed early.")
+    print("=" * 64)
+    input("\nPress Enter to continue...")
+
+    state.news.append(
+        f"🏆 {leader_name} clinches the {time.year} World Championship for {winner_ctor} with races to spare."
+    )
 
 
 def add_engine_failure_explanation(
@@ -3185,6 +3427,10 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile, exclude
                 state.points[fl_name] = 0
             state.points[fl_name] += 1
 
+    # Championship clinch check (even if races remain)
+    if is_champ_race:
+        maybe_show_championship_clinch(state, time, season_week)
+
     # Headline with enhanced media flavor
     winner = finishers[0][0]
     
@@ -3230,6 +3476,10 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile, exclude
     # Show full classification to player
     print_full_classification(race_name, finishers, retired, is_wet, is_hot, year=time.year, show_prompt=True, 
                              fastest_lap_driver=fastest_lap_driver)
+
+    dnf_drivers = [d for d, _ in retired]
+    retire_reasons = {d.get("name"): reason for d, reason in retired}
+    update_rivalries_after_race(state, finishers, dnf_drivers, retire_reasons, race_name, time.year)
 
     record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired, fastest_lap_driver)
     
@@ -3564,7 +3814,7 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
     dnf_drivers = []
 
     # Track why drivers retired this race (engine vs crash etc.)
-    retire_reasons = {}  # driver_name -> "engine" or "crash"
+    retire_reasons = {}  # driver_name -> "engine", "gearbox", "brakes", "crash"
 
     track_profile = tracks.get(
         race_name,
@@ -3759,7 +4009,15 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
                 name = d.get("name")
                 constructor = d.get("constructor", "")
                 reason = retire_reasons.get(name, "unknown")
-                reason_label = "Engine failure" if reason == "engine" else "Crashed out" if reason == "crash" else "DNF"
+                reason_labels = {
+                    "engine": "Engine failure",
+                    "gearbox": "Gearbox failure",
+                    "brakes": "Brake failure",
+                    "crash": "Crashed out",
+                    "collision": "Collision",
+                    "tyre_blowout": "Tyre blowout",
+                }
+                reason_label = reason_labels.get(reason, "DNF")
                 if name == player_name:
                     print(f"    \x1b[31mDNF. {name:<18} ({constructor:<12}) — {reason_label}\x1b[0m")
                 else:
@@ -3790,7 +4048,7 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         
         # Simulate all stages with neutral strategy
         for stage_idx in range(len(STAGE_LABELS)):
-            simulator.simulate_stage(stage_idx, player_strategy_mult=1.0)
+            simulator.simulate_stage(stage_idx, player_strategy_mult=1.0, player_wear_mult=1.0)
         
         finishers, dnf_drivers, retire_reasons = simulator.get_final_results()
         
@@ -4290,6 +4548,9 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
     )
 
     tick_driver_contract_after_race_end(state, time, started_race)
+
+    # AI driver contracts
+    tick_ai_contracts_after_race_end(state, time, finishers, dnf_drivers)
 
     record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired, fastest_lap_driver)
 

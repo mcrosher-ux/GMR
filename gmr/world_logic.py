@@ -115,14 +115,31 @@ def initialise_driver_age_profiles():
         d["peak_age"] = peak_age
         d["decline_age"] = decline_age
 
-def calculate_car_speed(engine, chassis):
+def calculate_car_speed(engine, chassis, gearbox=None, brakes=None):
     if engine is None or chassis is None:
         return 0
     lightness = 11 - chassis["weight"]
-    engine_component = engine["speed"] * 0.7 + engine["acceleration"] * 0.3
-    chassis_component = chassis["aero"] * 0.7 + lightness * 0.3
+    gearbox_bonus = 0.0
+    if gearbox:
+        gearbox_bonus = (gearbox.get("shift_quality", 5) - 5) * 0.3
+    engine_component = engine["speed"] * 0.7 + (engine["acceleration"] + gearbox_bonus) * 0.3
+
+    brake_bonus = 0.0
+    if brakes:
+        brake_bonus = (brakes.get("braking", 5) - 5) * 0.2
+    chassis_component = (chassis["aero"] + brake_bonus) * 0.7 + lightness * 0.3
     car_speed = engine_component * 0.6 + chassis_component * 0.4
     return round(car_speed, 1)
+
+
+def calculate_car_reliability(engine, gearbox=None):
+    """Combine engine reliability with gearbox durability bonuses."""
+    if not engine:
+        return 0
+    reliability = float(engine.get("reliability", 5))
+    if gearbox:
+        reliability += float(gearbox.get("reliability_bonus", 0))
+    return max(1.0, min(10.0, reliability))
 
 def get_car_speed_for_track(state, track_profile):
     """
@@ -156,14 +173,24 @@ def get_car_speed_for_track(state, track_profile):
         accel_weight = 0.45
 
     # Engine contribution, now track-sensitive
+    gearbox = getattr(state, "current_gearbox", None)
+    brakes = getattr(state, "current_brakes", None)
+
+    gearbox_bonus = 0.0
+    if gearbox:
+        gearbox_bonus = (gearbox.get("shift_quality", 5) - 5) * 0.3
+
     engine_component = (
         engine["speed"] * top_speed_weight +
-        engine["acceleration"] * accel_weight
+        (engine["acceleration"] + gearbox_bonus) * accel_weight
     )
 
     # Chassis contribution as before
     lightness = 11 - chassis["weight"]
-    chassis_component = chassis["aero"] * 0.7 + lightness * 0.3
+    brake_bonus = 0.0
+    if brakes:
+        brake_bonus = (brakes.get("braking", 5) - 5) * 0.2
+    chassis_component = (chassis["aero"] + brake_bonus) * 0.7 + lightness * 0.3
 
     car_speed = engine_component * 0.6 + chassis_component * 0.4
 
@@ -306,23 +333,56 @@ def driver_enters_event(driver, race_name, track_profile, state=None, time=None)
 
     # Valdieri schedule rules (demo)
     if ctor == "Scuderia Valdieri":
-        allowed_races = {
-            "Vallone GP",
-            "Little Autodromo",
-            "Ardennes Endurance GP",
-            "Château-des-Prés GP",
-            "Marblethorpe GP",
-        }
-
-        if race_name in allowed_races:
+        # Check if Valdieri is a proper constructor (spawned and active)
+        valdieri_active = state and getattr(state, "valdieri_active", False)
+        
+        if valdieri_active:
+            # ─────────────────────────────────────────────────────────────
+            # RIVALRY MODE: Valdieri enters all European races Enzoni does
+            # They're fierce competitors and match each other's schedule
+            # ─────────────────────────────────────────────────────────────
+            
+            # Skip tiny club circuits - beneath factory teams
+            if race_name == "Bradley Fields":
+                return False
+            
+            # Skip Americas races (too far, not worth it for European rivalry)
+            country = track_profile.get("country", "")
+            if country in ("USA", "Brazil", "Argentina", "Mexico"):
+                # Exception: Send 1 car to big Americas races (prestige)
+                # This is handled at grid-building level (only 1 driver)
+                if race_name in ("Union Speedway", "Autódromo General San Martín"):
+                    # Only the team's top driver goes
+                    team_drivers = [d for d in drivers if d.get("constructor") == ctor]
+                    if team_drivers:
+                        top_driver = max(team_drivers, 
+                                        key=lambda x: x.get("fame", 0) * 2 + x.get("pace", 0))
+                        if driver == top_driver:
+                            return True
+                    return False
+                return False
+            
+            # Enter all European races (matching Enzoni)
             return True
+        else:
+            # Pre-spawn: Scuderia Valdieri not yet active as full constructor
+            allowed_races = {
+                "Vallone GP",
+                "Little Autodromo",
+                "Ardennes Endurance GP",
+                "Château-des-Prés GP",
+                "Marblethorpe GP",
+            }
 
-        # Optional: allow Italian races generally (same vibe as Enzoni)
-        country = track_profile.get("country", "")
-        if country == "Italy":
-            return True
+            if race_name in allowed_races:
+                return True
 
-        return False
+            # Allow Italian races
+            country = track_profile.get("country", "")
+            if country == "Italy":
+                return True
+
+            return False
 
 
 
@@ -364,22 +424,53 @@ def driver_enters_event(driver, race_name, track_profile, state=None, time=None)
     if ctor != "Enzoni":
         return True
 
-    # Enzoni schedule rules (demo)
-    allowed_races = {
-        "Vallone GP",
-        "Little Autodromo",
-        "Ardennes Endurance GP",
-    }
-
-    if race_name in allowed_races:
+    # ─────────────────────────────────────────────────────────────────
+    # ENZONI SCHEDULE RULES
+    # Once Valdieri is active, Enzoni expands to match their rival
+    # ─────────────────────────────────────────────────────────────────
+    valdieri_active = state and getattr(state, "valdieri_active", False)
+    
+    if valdieri_active:
+        # RIVALRY MODE: Enzoni enters all European races to match Valdieri
+        
+        # Skip tiny club circuits - beneath factory teams
+        if race_name == "Bradley Fields":
+            return False
+        
+        # Skip Americas races (too far, rivalry is in Europe)
+        country = track_profile.get("country", "")
+        if country in ("USA", "Brazil", "Argentina", "Mexico"):
+            # Exception: Send 1 car to big Americas races (prestige)
+            if race_name in ("Union Speedway", "Autódromo General San Martín"):
+                # Only the team's top driver goes
+                team_drivers = [d for d in drivers if d.get("constructor") == ctor]
+                if team_drivers:
+                    top_driver = max(team_drivers, 
+                                    key=lambda x: x.get("fame", 0) * 2 + x.get("pace", 0))
+                    if driver == top_driver:
+                        return True
+                return False
+            return False
+        
+        # Enter all European races
         return True
+    else:
+        # Pre-rivalry: Enzoni's original limited schedule
+        allowed_races = {
+            "Vallone GP",
+            "Little Autodromo",
+            "Ardennes Endurance GP",
+        }
 
-    # Optional: allow ANY Italian event if you add more Italy tracks later
-    country = track_profile.get("country", "")
-    if country == "Italy":
-        return True
+        if race_name in allowed_races:
+            return True
 
-    return False
+        # Allow ANY Italian event
+        country = track_profile.get("country", "")
+        if country == "Italy":
+            return True
+
+        return False
 
 def can_team_sign_driver(state, driver):
     """
@@ -452,6 +543,81 @@ def get_regen_age_for_year(year: int) -> int:
     else:
         # Proper modern era – young hotshoes
         return random.randint(18, 30)
+
+
+def _rivalry_key(prefix: str, a: str, b: str) -> str:
+    left, right = sorted([a, b])
+    return f"{prefix}:{left}|{right}"
+
+
+def _bump_rivalry(state, key: str, amount: int, rivalry_type: str, headline: str, year: int):
+    entry = state.rivalries.get(key, {"score": 0, "last_level": 0, "type": rivalry_type})
+    entry["score"] += amount
+    state.rivalries[key] = entry
+
+    # Escalation thresholds
+    level = 0
+    if entry["score"] >= 3:
+        level = 1
+    if entry["score"] >= 6:
+        level = 2
+    if entry["score"] >= 10:
+        level = 3
+
+    if level > entry["last_level"]:
+        entry["last_level"] = level
+        state.rivalries[key] = entry
+        state.news.append(headline)
+
+    # Occasional cheating accusations once rivalry is hot
+    if entry["score"] >= 6 and random.random() < 0.2:
+        state.news.append("📰 Accusations fly in the paddock as tensions boil over between rivals.")
+
+
+def update_rivalries_after_race(state, finishers, dnf_drivers, retire_reasons, race_name, year):
+    """
+    Simple rivalry system:
+    - Close finishes between drivers from different constructors
+    - Crash DNFs can trigger blame
+    - Constructor rivalries when P1/P2 are different teams
+    """
+    if not hasattr(state, "rivalries"):
+        state.rivalries = {}
+
+    # Constructor rivalry: P1 vs P2
+    if len(finishers) >= 2:
+        p1_driver, _ = finishers[0]
+        p2_driver, _ = finishers[1]
+        c1 = p1_driver.get("constructor", "Independent")
+        c2 = p2_driver.get("constructor", "Independent")
+        if c1 != c2 and c1 != "Independent" and c2 != "Independent":
+            key = _rivalry_key("ctor", c1, c2)
+            headline = f"🔥 Rivalry flares: {c1} and {c2} trade blows at {race_name}."
+            _bump_rivalry(state, key, 2, "constructor", headline, year)
+
+    # Driver rivalry: close finishers (positions 1–6)
+    top_finishers = finishers[:6]
+    for i in range(len(top_finishers) - 1):
+        d1, _ = top_finishers[i]
+        d2, _ = top_finishers[i + 1]
+        if d1.get("constructor") != d2.get("constructor"):
+            key = _rivalry_key("driver", d1.get("name", ""), d2.get("name", ""))
+            headline = (
+                f"🔥 Driver rivalry brewing: {d1.get('name')} and {d2.get('name')} clash on track at {race_name}."
+            )
+            _bump_rivalry(state, key, 1, "driver", headline, year)
+
+    # Crash blame: if a crash DNF happened, stir a rival
+    crash_dnfs = [d for d in dnf_drivers if retire_reasons.get(d.get("name")) == "crash"]
+    if crash_dnfs and finishers:
+        blamed = random.choice(finishers)[0]
+        victim = random.choice(crash_dnfs)
+        if victim.get("constructor") != blamed.get("constructor"):
+            key = _rivalry_key("driver", victim.get("name", ""), blamed.get("name", ""))
+            headline = (
+                f"🗞️ Tensions rise: {victim.get('name')} accuses {blamed.get('name')} after a crash at {race_name}."
+            )
+            _bump_rivalry(state, key, 2, "driver", headline, year)
 
 def get_retirement_ages_for_year(year: int):
     """

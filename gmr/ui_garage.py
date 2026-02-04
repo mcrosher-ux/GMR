@@ -1,9 +1,15 @@
 # gmr/ui_garage.py
 import random
-from gmr.constants import ENZONI_PRESTIGE_REQUIREMENT, calculate_garage_benefits
+from gmr.constants import (
+    ENZONI_PRESTIGE_REQUIREMENT,
+    calculate_garage_benefits,
+    clamp_chassis_aero,
+    clamp_chassis_suspension,
+    clamp_chassis_weight,
+)
 from gmr.world_logic import describe_career_phase
-from gmr.data import engines, chassis_list
-from gmr.world_logic import calculate_car_speed
+from gmr.data import engines, chassis_list, gearboxes, brakes
+from gmr.world_logic import calculate_car_speed, calculate_car_reliability
 from gmr.careers import describe_driver_fame
 
 
@@ -122,22 +128,21 @@ def show_engine_shop(state):
     
     print(f"\n  [Engine condition reset: {old_wear:.0f}% → 100% (fresh unit)]")
 
-    # Recalculate overall car speed using engine + chassis
+    # Recalculate overall car speed and reliability using engine + chassis + gearbox + brakes
     if state.current_chassis:
-        state.car_speed = calculate_car_speed(state.current_engine, state.current_chassis)
+        state.car_speed = calculate_car_speed(
+            state.current_engine,
+            state.current_chassis,
+            getattr(state, "current_gearbox", None),
+            getattr(state, "current_brakes", None),
+        )
     else:
         state.car_speed = state.current_engine["speed"]
 
-    state.car_reliability = state.current_engine["reliability"]
-
-
-    # Recalculate overall car speed using engine + chassis
-    if state.current_chassis:
-        state.car_speed = calculate_car_speed(state.current_engine, state.current_chassis)
-    else:
-        state.car_speed = selected_engine["speed"]
-
-    state.car_reliability = selected_engine["reliability"]
+    state.car_reliability = calculate_car_reliability(
+        state.current_engine,
+        getattr(state, "current_gearbox", None),
+    )
 
 
     print(f"\nYou have bought and installed the {selected_engine['name']}.")
@@ -318,9 +323,18 @@ def show_chassis_shop(state):
     state.chassis_insight = 0.0
 
 
-    # Recalculate combined car speed using engine + chassis
+    # Recalculate combined car speed using engine + chassis + gearbox + brakes
     if state.current_engine:
-        state.car_speed = calculate_car_speed(state.current_engine, state.current_chassis)
+        state.car_speed = calculate_car_speed(
+            state.current_engine,
+            state.current_chassis,
+            getattr(state, "current_gearbox", None),
+            getattr(state, "current_brakes", None),
+        )
+        state.car_reliability = calculate_car_reliability(
+            state.current_engine,
+            getattr(state, "current_gearbox", None),
+        )
     else:
         # Fallback: rough chassis-only speed if no engine yet
         lightness = 11 - selected_chassis["weight"]
@@ -344,6 +358,136 @@ def show_chassis_shop(state):
         state,
         reason="A new chassis usually means a new 'model year' – you could give this spec its own name."
     )
+
+
+def show_gearbox_shop(state, time):
+    print("\n=== Racecar Parts: Gearboxes ===")
+
+    # Show current gearbox
+    if state.current_gearbox:
+        gb = state.current_gearbox
+        print("Current Gearbox:")
+        print(f"  {gb['name']} (Source: {gb['supplier']})")
+        print(f"    Shift Quality ....... {gb['shift_quality']}")
+        print(f"    Reliability Bonus ... {gb.get('reliability_bonus', 0)}")
+        print(f"    Notes: {gb['description']}")
+    else:
+        print("Current Gearbox: None installed")
+
+    print("\nAvailable Gearboxes:")
+    available_gearboxes = [g for g in gearboxes if g.get("year_available", 1947) <= time.year]
+
+    for idx, gb in enumerate(available_gearboxes, start=1):
+        marker = " [CURRENT]" if state.current_gearbox and gb["id"] == state.current_gearbox.get("id") else ""
+        print(f"\n{idx}. {gb['name']}{marker}")
+        print(f"   Supplier: {gb['supplier']}")
+        print(f"     Shift Quality ....... {gb['shift_quality']}")
+        print(f"     Reliability Bonus ... {gb.get('reliability_bonus', 0)}")
+        print(f"     Price: £{gb['price']}")
+        print(f"     About: {gb['description']}")
+
+    choice = input("\nEnter the number of a gearbox to buy and install, or press Enter to go back: ").strip()
+    if choice == "":
+        return
+    if not choice.isdigit():
+        print("Invalid input. No purchase made.")
+        return
+
+    idx = int(choice)
+    if idx < 1 or idx > len(available_gearboxes):
+        print("Invalid gearbox selection.")
+        return
+
+    selected = available_gearboxes[idx - 1]
+    price = selected["price"]
+    if price > state.money:
+        print(f"You cannot afford this gearbox. You need £{price}, but only have £{state.money}.")
+        return
+
+    state.money -= price
+    state.last_week_purchases += price
+    state.last_week_outgoings += price
+    state.current_gearbox = dict(selected)
+
+    # Recalculate car stats if car is complete
+    if state.current_engine and state.current_chassis:
+        state.car_speed = calculate_car_speed(
+            state.current_engine,
+            state.current_chassis,
+            state.current_gearbox,
+            getattr(state, "current_brakes", None),
+        )
+        state.car_reliability = calculate_car_reliability(
+            state.current_engine,
+            state.current_gearbox,
+        )
+
+    print(f"\nYou have bought and installed the {selected['name']}.")
+
+
+def show_brake_shop(state, time):
+    print("\n=== Racecar Parts: Brakes ===")
+
+    # Show current brakes
+    if state.current_brakes:
+        br = state.current_brakes
+        print("Current Brakes:")
+        print(f"  {br['name']} (Source: {br['supplier']})")
+        print(f"    Braking ............. {br['braking']}")
+        print(f"    Crash Multiplier .... {br.get('crash_mult', 1.0)}")
+        print(f"    Notes: {br['description']}")
+    else:
+        print("Current Brakes: None installed")
+
+    print("\nAvailable Brakes:")
+    available_brakes = [b for b in brakes if b.get("year_available", 1947) <= time.year]
+
+    for idx, br in enumerate(available_brakes, start=1):
+        marker = " [CURRENT]" if state.current_brakes and br["id"] == state.current_brakes.get("id") else ""
+        print(f"\n{idx}. {br['name']}{marker}")
+        print(f"   Supplier: {br['supplier']}")
+        print(f"     Braking ............. {br['braking']}")
+        print(f"     Crash Multiplier .... {br.get('crash_mult', 1.0)}")
+        print(f"     Price: £{br['price']}")
+        print(f"     About: {br['description']}")
+
+    choice = input("\nEnter the number of brakes to buy and install, or press Enter to go back: ").strip()
+    if choice == "":
+        return
+    if not choice.isdigit():
+        print("Invalid input. No purchase made.")
+        return
+
+    idx = int(choice)
+    if idx < 1 or idx > len(available_brakes):
+        print("Invalid brakes selection.")
+        return
+
+    selected = available_brakes[idx - 1]
+    price = selected["price"]
+    if price > state.money:
+        print(f"You cannot afford these brakes. You need £{price}, but only have £{state.money}.")
+        return
+
+    state.money -= price
+    state.last_week_purchases += price
+    state.last_week_outgoings += price
+    state.current_brakes = dict(selected)
+
+    # Recalculate car stats if car is complete
+    if state.current_engine and state.current_chassis:
+        state.car_speed = calculate_car_speed(
+            state.current_engine,
+            state.current_chassis,
+            getattr(state, "current_gearbox", None),
+            state.current_brakes,
+        )
+        state.car_reliability = calculate_car_reliability(
+            state.current_engine,
+            getattr(state, "current_gearbox", None),
+        )
+
+    print(f"\nYou have bought and installed the {selected['name']}.")
 
 
 def show_garage(state):
@@ -372,6 +516,14 @@ def show_garage(state):
         if benefits["mechanic_skill_bonus"] > 0:
             print(f"  • +{benefits['mechanic_skill_bonus']} mechanic skill")
 
+    # R&D status
+    if getattr(state, "r_and_d_active", False):
+        print(f"\nR&D Program: ACTIVE ({state.r_and_d_focus})")
+        print(f"  Progress: {state.r_and_d_progress:.1f}/100")
+        print(f"  Insight: {state.r_and_d_insight:.1f}/10")
+    else:
+        print("\nR&D Program: inactive")
+
     print("\nYour Car:")
      
     if getattr(state, "car_name", None):
@@ -390,6 +542,16 @@ def show_garage(state):
         print(f"    Notes: {eng['description']}")
     else:
         print("  Engine: None installed")
+
+    # Gearbox
+    if state.current_gearbox:
+        gb = state.current_gearbox
+        print(f"  Gearbox: {gb['name']} (Supplier: {gb['supplier']})")
+        print(f"    Shift Quality ....... {gb['shift_quality']}")
+        print(f"    Reliability Bonus ... {gb.get('reliability_bonus', 0)}")
+        print(f"    Notes: {gb['description']}")
+    else:
+        print("  Gearbox: None installed")
 
     # Chassis
     if state.current_chassis:
@@ -416,6 +578,16 @@ def show_garage(state):
         print(f"    Chassis insight: {insight_desc} (improves development quality)")
     else:
         print("  Chassis: None installed")
+
+    # Brakes
+    if state.current_brakes:
+        br = state.current_brakes
+        print(f"  Brakes: {br['name']} (Supplier: {br['supplier']})")
+        print(f"    Braking ............. {br['braking']}")
+        print(f"    Crash Multiplier .... {br.get('crash_mult', 1.0)}")
+        print(f"    Notes: {br['description']}")
+    else:
+        print("  Brakes: None installed")
 
 
     print(f"  Overall Speed: {state.car_speed}")
@@ -740,6 +912,332 @@ def manage_chassis_development(state):
         input("\nPress Enter to return to the Garage menu...")
     else:
         return
+
+
+def get_available_rnd_projects(time):
+    year = time.year
+    projects = [
+        ("chassis_refinement", "Chassis refinement (1947+)")
+    ]
+
+    if year >= 1951:
+        projects.append(("gearbox_development", "Gearbox development (1951+)") )
+        projects.append(("brake_development", "Brake development (1951+)") )
+
+    if year >= 1955:
+        projects.append(("front_cooling", "Front cooling & radiator ducting (1955+)") )
+
+    if year >= 1958:
+        projects.append(("rear_engine_conversion", "Rear-engine conversion (1958+)") )
+
+    return projects
+
+
+def _rnd_quality_roll(state, garage, time):
+    mech = garage.get_effective_mechanic_skill(state)
+    insight = getattr(state, "r_and_d_insight", 0.0)
+    roll = random.random()
+    roll += (mech / 10.0) * 0.25
+    roll += (insight / 10.0) * 0.20
+    # Early era: higher risk, later era: more reliable R&D
+    if time.year <= 1950:
+        roll -= 0.10
+    elif time.year >= 1958:
+        roll += 0.05
+    return max(0.0, min(1.0, roll))
+
+
+def _apply_rnd_outcome(state, focus, quality):
+    garage = state.garage
+    mech = garage.get_effective_mechanic_skill(state)
+
+    # Outcome tiers
+    if quality < 0.45:
+        outcome = "fail"
+    elif quality < 0.75:
+        outcome = "minor"
+    else:
+        outcome = "major"
+
+    def recalc_car():
+        if state.current_engine and state.current_chassis:
+            state.car_speed = calculate_car_speed(
+                state.current_engine,
+                state.current_chassis,
+                getattr(state, "current_gearbox", None),
+                getattr(state, "current_brakes", None),
+            )
+            state.car_reliability = calculate_car_reliability(
+                state.current_engine,
+                getattr(state, "current_gearbox", None),
+            )
+
+    # Chassis refinement
+    if focus == "chassis_refinement":
+        if not state.current_chassis:
+            state.news.append("R&D stalled: no chassis installed.")
+            return
+
+        ch = state.current_chassis
+        stat = random.choice(["aero", "suspension", "weight"])
+
+        if outcome == "fail":
+            if stat == "weight":
+                ch["weight"] = clamp_chassis_weight(ch.get("weight", 7) + 1)
+            elif stat == "aero":
+                ch["aero"] = clamp_chassis_aero(ch.get("aero", 2) - 1)
+            else:
+                ch["suspension"] = clamp_chassis_suspension(ch.get("suspension", 5) - 1)
+            state.news.append("R&D setback: chassis changes missed the mark.")
+        elif outcome == "minor":
+            if stat == "weight":
+                ch["weight"] = clamp_chassis_weight(ch.get("weight", 7) - 1)
+            elif stat == "aero":
+                ch["aero"] = clamp_chassis_aero(ch.get("aero", 2) + 1)
+            else:
+                ch["suspension"] = clamp_chassis_suspension(ch.get("suspension", 5) + 1)
+            state.news.append("R&D success: small chassis gains achieved.")
+        else:
+            if stat == "weight":
+                ch["weight"] = clamp_chassis_weight(ch.get("weight", 7) - 2)
+            elif stat == "aero":
+                ch["aero"] = clamp_chassis_aero(ch.get("aero", 2) + 2)
+            else:
+                ch["suspension"] = clamp_chassis_suspension(ch.get("suspension", 5) + 2)
+            state.news.append("R&D breakthrough: major chassis improvement unlocked.")
+
+        recalc_car()
+        return
+
+    # Gearbox development
+    if focus == "gearbox_development":
+        gb = getattr(state, "current_gearbox", None)
+        if not gb:
+            state.news.append("R&D stalled: no gearbox installed.")
+            return
+
+        if outcome == "fail":
+            gb["shift_quality"] = max(1, gb.get("shift_quality", 5) - 1)
+            state.news.append("R&D setback: gearbox revisions reduced shift quality.")
+        elif outcome == "minor":
+            gb["shift_quality"] = min(10, gb.get("shift_quality", 5) + 1)
+            state.news.append("R&D success: improved gearbox shift quality.")
+        else:
+            gb["shift_quality"] = min(10, gb.get("shift_quality", 5) + 2)
+            gb["reliability_bonus"] = gb.get("reliability_bonus", 0) + 1
+            state.news.append("R&D breakthrough: sharper shifts and stronger gearbox internals.")
+
+        recalc_car()
+        return
+
+    # Brake development
+    if focus == "brake_development":
+        br = getattr(state, "current_brakes", None)
+        if not br:
+            state.news.append("R&D stalled: no brakes installed.")
+            return
+
+        if outcome == "fail":
+            br["braking"] = max(1, br.get("braking", 5) - 1)
+            br["crash_mult"] = min(1.15, br.get("crash_mult", 1.0) + 0.05)
+            state.news.append("R&D setback: brake tuning worsened stability.")
+        elif outcome == "minor":
+            br["braking"] = min(10, br.get("braking", 5) + 1)
+            br["crash_mult"] = max(0.90, br.get("crash_mult", 1.0) - 0.03)
+            state.news.append("R&D success: improved braking consistency.")
+        else:
+            br["braking"] = min(10, br.get("braking", 5) + 2)
+            br["crash_mult"] = max(0.85, br.get("crash_mult", 1.0) - 0.06)
+            state.news.append("R&D breakthrough: strong braking upgrade achieved.")
+
+        recalc_car()
+        return
+
+    # Front cooling & radiator ducting
+    if focus == "front_cooling":
+        eng = getattr(state, "current_engine", None)
+        if not eng:
+            state.news.append("R&D stalled: no engine installed.")
+            return
+
+        if outcome == "fail":
+            eng["heat_tolerance"] = max(1, eng.get("heat_tolerance", 5) - 1)
+            state.news.append("R&D setback: cooling revisions hurt heat management.")
+        elif outcome == "minor":
+            eng["heat_tolerance"] = min(10, eng.get("heat_tolerance", 5) + 1)
+            state.news.append("R&D success: modest cooling improvements found.")
+        else:
+            eng["heat_tolerance"] = min(10, eng.get("heat_tolerance", 5) + 2)
+            eng["reliability"] = min(10, eng.get("reliability", 5) + 1)
+            state.news.append("R&D breakthrough: major cooling gains unlock reliability.")
+
+        recalc_car()
+        return
+
+    # Rear-engine conversion
+    if focus == "rear_engine_conversion":
+        ch = getattr(state, "current_chassis", None)
+        eng = getattr(state, "current_engine", None)
+        if not ch or not eng:
+            state.news.append("R&D stalled: rear-engine conversion needs a complete car.")
+            return
+
+        if not state.r_and_d_rear_engine_backup:
+            state.r_and_d_rear_engine_backup = {
+                "weight": ch.get("weight", 7),
+                "aero": ch.get("aero", 2),
+                "suspension": ch.get("suspension", 5),
+                "heat_tolerance": eng.get("heat_tolerance", 5),
+            }
+
+        if outcome == "fail":
+            ch["weight"] = clamp_chassis_weight(ch.get("weight", 7) + 2)
+            ch["aero"] = clamp_chassis_aero(ch.get("aero", 2) - 1)
+            ch["suspension"] = clamp_chassis_suspension(ch.get("suspension", 5) - 1)
+            eng["heat_tolerance"] = max(1, eng.get("heat_tolerance", 5) - 1)
+            state.r_and_d_rear_engine_failed = True
+            state.r_and_d_rear_engine_active = False
+            state.news.append("R&D failure: rear-engine conversion upset balance and cooling.")
+        elif outcome == "minor":
+            ch["weight"] = clamp_chassis_weight(ch.get("weight", 7) - 1)
+            ch["aero"] = clamp_chassis_aero(ch.get("aero", 2) + 1)
+            ch["suspension"] = clamp_chassis_suspension(ch.get("suspension", 5) + 1)
+            eng["heat_tolerance"] = min(10, eng.get("heat_tolerance", 5) + 1)
+            state.r_and_d_rear_engine_active = True
+            state.r_and_d_rear_engine_failed = False
+            state.news.append("R&D success: early rear-engine layout shows promise.")
+        else:
+            ch["weight"] = clamp_chassis_weight(ch.get("weight", 7) - 2)
+            ch["aero"] = clamp_chassis_aero(ch.get("aero", 2) + 2)
+            ch["suspension"] = clamp_chassis_suspension(ch.get("suspension", 5) + 2)
+            eng["heat_tolerance"] = min(10, eng.get("heat_tolerance", 5) + 2)
+            state.r_and_d_rear_engine_active = True
+            state.r_and_d_rear_engine_failed = False
+            state.news.append("R&D breakthrough: rear-engine conversion is a massive leap forward.")
+
+        recalc_car()
+        return
+
+
+def maybe_progress_r_and_d(state, time):
+    if not getattr(state, "r_and_d_active", False):
+        return
+
+    # Basic gating: allow 1947-50 only chassis refinement
+    if time.year <= 1950 and state.r_and_d_focus != "chassis_refinement":
+        return
+
+    # Weekly cost and progress
+    mech = state.garage.get_effective_mechanic_skill(state)
+    # Era tuning: early R&D is costly and slow; later becomes more efficient
+    if time.year <= 1950:
+        base_cost = 75
+        progress_base = 5
+    elif time.year <= 1956:
+        base_cost = 65
+        progress_base = 6
+    else:
+        base_cost = 55
+        progress_base = 7
+
+    if state.garage.r_and_d_enabled:
+        base_cost += 10
+
+    if state.money < base_cost:
+        return
+
+    state.money -= base_cost
+    state.last_week_rd_spend += base_cost
+    state.last_week_outgoings += base_cost
+
+    progress_gain = progress_base + mech * 0.6
+    if state.garage.r_and_d_enabled:
+        progress_gain += 2
+    if state.r_and_d_focus == "rear_engine_conversion":
+        progress_gain -= 1
+
+    state.r_and_d_progress += progress_gain
+
+    # Insight gain chance
+    insight_chance = 0.28 + mech * 0.02 + (0.10 if state.garage.r_and_d_enabled else 0.0)
+    if time.year <= 1950:
+        insight_chance -= 0.05
+    elif time.year >= 1958:
+        insight_chance += 0.05
+    if random.random() < min(0.7, insight_chance):
+        state.r_and_d_insight = min(10.0, state.r_and_d_insight + random.uniform(0.6, 1.4))
+
+    if state.r_and_d_progress >= 100.0:
+        quality = _rnd_quality_roll(state, state.garage, time)
+        _apply_rnd_outcome(state, state.r_and_d_focus, quality)
+        state.r_and_d_progress = 0.0
+
+
+def manage_r_and_d_program(state, time):
+    print("\n=== R&D Program ===")
+
+    # Lock non-chassis research in 47-50
+    if time.year <= 1950:
+        print("R&D is in its infancy. You can only refine the chassis until 1951.")
+
+    status = "ACTIVE" if state.r_and_d_active else "inactive"
+    print(f"Current status: {status}")
+    print(f"Focus: {state.r_and_d_focus or 'none'}")
+    print(f"Progress: {state.r_and_d_progress:.1f}/100")
+    print(f"Insight: {state.r_and_d_insight:.1f}/10")
+
+    if state.r_and_d_rear_engine_failed and state.r_and_d_rear_engine_backup:
+        print("\n⚠️  Rear-engine conversion failed. You may revert to front-engine layout.")
+
+    print("\n1. Start / Change focus")
+    print("2. Toggle program on/off")
+    if state.r_and_d_rear_engine_failed and state.r_and_d_rear_engine_backup:
+        print("3. Revert rear-engine conversion")
+        print("4. Back to Garage menu")
+    else:
+        print("3. Back to Garage menu")
+
+    choice = input("> ").strip()
+
+    if choice == "1":
+        projects = get_available_rnd_projects(time)
+        print("\nAvailable R&D focuses:")
+        for idx, (_, label) in enumerate(projects, start=1):
+            print(f"{idx}. {label}")
+        pick = input("> ").strip()
+        if pick.isdigit():
+            idx = int(pick)
+            if 1 <= idx <= len(projects):
+                focus = projects[idx - 1][0]
+                state.r_and_d_focus = focus
+                state.r_and_d_active = True
+                state.r_and_d_progress = 0.0
+                print(f"\nR&D focus set to: {projects[idx - 1][1]}")
+        input("\nPress Enter to return to the Garage menu...")
+        return
+
+    if choice == "2":
+        state.r_and_d_active = not state.r_and_d_active
+        status = "ACTIVE" if state.r_and_d_active else "inactive"
+        print(f"\nR&D program is now {status}.")
+        input("\nPress Enter to return to the Garage menu...")
+        return
+
+    if choice == "3" and state.r_and_d_rear_engine_failed and state.r_and_d_rear_engine_backup:
+        backup = state.r_and_d_rear_engine_backup
+        if state.current_chassis and state.current_engine:
+            state.current_chassis["weight"] = clamp_chassis_weight(backup["weight"])
+            state.current_chassis["aero"] = clamp_chassis_aero(backup["aero"])
+            state.current_chassis["suspension"] = clamp_chassis_suspension(backup["suspension"])
+            state.current_engine["heat_tolerance"] = max(1, min(10, backup["heat_tolerance"]))
+        state.r_and_d_rear_engine_failed = False
+        state.r_and_d_rear_engine_active = False
+        state.r_and_d_rear_engine_backup = None
+        print("\nConversion reverted. Your car is back to a front-engine layout.")
+        input("\nPress Enter to return to the Garage menu...")
+        return
+
+    return
 
 
 def handle_repairs(state):
