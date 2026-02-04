@@ -1,9 +1,16 @@
 # gmr/sponsorship.py
-# Sponsorship system for drivers
+# Expanded sponsorship system - supports multiple sponsors with goals and events
 
 import random
+from gmr.sponsors_data import (
+    SPONSORS, SPONSOR_TIERS, SPONSOR_EVENTS,
+    get_max_sponsor_slots, get_available_sponsors, get_sponsor_by_tier
+)
 
-# Enhanced sponsor types with more personality and media presence
+# =============================================================================
+# LEGACY SPONSOR_TYPES (for backwards compatibility with tests and old code)
+# =============================================================================
+
 SPONSOR_TYPES = {
     "Gallant Leaf Tobacco": {
         "personality": "aggressive_marketing",
@@ -48,6 +55,7 @@ SPONSOR_TYPES = {
         "rivalries": ["traditional_engineers"],
     },
 }
+
 
 def generate_media_event(sponsor_name, event_type, state, time):
     """
@@ -94,7 +102,7 @@ def generate_media_event(sponsor_name, event_type, state, time):
         event_description = random.choice(media_events[event_type])
         state.news.append(f"MEDIA: {event_description}")
 
-        # Add some atmospheric flavor based on sponsor personality
+        # Add atmospheric flavor based on sponsor personality
         personality = sponsor_info.get("personality", "")
         if personality == "aggressive_marketing":
             state.news.append("The air fills with cigarette smoke as journalists mingle with racing personalities.")
@@ -109,261 +117,6 @@ def generate_media_event(sponsor_name, event_type, state, time):
         elif personality == "cutting_edge_research":
             state.news.append("White-coated engineers discuss aerodynamics with intense technical precision.")
 
-def maybe_sponsor_media_event(state, time):
-    """
-    Random sponsor media events that add flavor and atmosphere to the game world.
-    """
-    if not state.sponsor_active:
-        return
-
-    sponsor_name = state.sponsor_name
-    sponsor_info = SPONSOR_TYPES.get(sponsor_name, {})
-
-    # 8% chance per week for a media event (reduced from 15%)
-    if random.random() > 0.08:
-        return
-
-    press_events = sponsor_info.get("press_events", ["press_conference"])
-    event_type = random.choice(press_events)
-
-    generate_media_event(sponsor_name, event_type, state, time)
-
-    # Occasionally add sponsor-specific rivalries or drama
-    if random.random() < 0.3:  # 30% chance for additional drama
-        rivalries = sponsor_info.get("rivalries", [])
-        if rivalries and random.random() < 0.5:
-            rivalry_type = random.choice(rivalries)
-            drama_events = {
-                "health_campaigns": [
-                    "CONTROVERSY: Health advocates protest outside the circuit, targeting tobacco sponsorships.",
-                    "DEBATE: Medical experts question the ethics of tobacco brands in motorsport.",
-                ],
-                "rival_tobacco": [
-                    "COMPETITION: A rival tobacco brand launches a competing racing sponsorship.",
-                    "MARKET WARS: Tobacco companies battle for motorsport supremacy through team backing.",
-                ],
-                "rival_wine_brands": [
-                    "WINE RIVALRY: Competing vintners question the quality of sponsor's racing partnership.",
-                    "TRADITION CLASH: Old-world wine houses view the sponsorship as undignified.",
-                ],
-                "competitor_brands": [
-                    "TECH RIVALRY: Competing electronics firms criticize the sponsor's racing involvement.",
-                    "MARKET SHARE: Electronics giants vie for attention through motorsport exposure.",
-                ],
-                "rival_banks": [
-                    "BANKING POLITICS: Rival financial institutions question the sponsor's racing motives.",
-                    "CORPORATE RIVALRY: Banking houses compete for prestige through team sponsorships.",
-                ],
-                "competitor_tire_brands": [
-                    "TIRE WARS: Rival manufacturers challenge the sponsor's performance claims.",
-                    "RUBBER RIVALRY: Tire companies battle for supremacy in the racing marketplace.",
-                ],
-                "traditional_engineers": [
-                    "TRADITION vs INNOVATION: Old-school engineers dismiss the sponsor's 'radical' ideas.",
-                    "METHODOLOGY DEBATE: Aerospace techniques spark controversy in traditional racing circles.",
-                ],
-            }
-
-            if rivalry_type in drama_events:
-                drama = random.choice(drama_events[rivalry_type])
-                state.news.append(f"INDUSTRY NEWS: {drama}")
-
-
-def maybe_gallant_driver_promo(state, time):
-    """
-    One-time sponsor event:
-    If Gallant Leaf are sponsoring you AND your current driver reaches Fame 2,
-    Gallant want to use them for promo. Player chooses how to respond.
-
-    This is separate from the Prestige 5 advert event.
-    """
-
-    # Need an active Gallant Leaf deal
-    if not state.sponsor_active or state.sponsor_name != "Gallant Leaf Tobacco":
-        return
-
-    # Need a current driver
-    if not state.player_driver:
-        return
-
-    # Only once per save
-    if getattr(state, "gallant_driver_promo_done", False):
-        return
-
-    # Trigger condition: driver reaches fame 2+
-    fame = state.player_driver.get("fame", 0)
-    if fame < 2:
-        return
-
-    team_name = state.player_constructor or "Your team"
-    driver_name = state.player_driver.get("name", "your driver")
-
-    # --- Numbers (simple + readable) ---
-    # Base team cut scales a bit with fame so it stays relevant.
-    base_team_cut = 120 + fame * 30
-
-    # Options
-    option1_cash = base_team_cut                 # standard advert
-    option2_cash = int(base_team_cut * 1.25)     # hard bargain
-    option3_cash = 0                             # refuse
-
-    # Prestige impacts
-    option1_prestige = +0.3
-    option2_prestige = -0.2
-    option3_prestige = +0.6
-
-    # Sponsor relationship impacts (affects future sponsor payments)
-    option2_mult_delta = +0.05
-    option3_mult_delta = -0.10
-
-    # Small “time lost to promo” fatigue (long-term health, NOT wear/condition)
-    option1_engine_health_hit = 1.5
-    option1_chassis_health_hit = 1.0
-
-    print("\n=== Sponsor Request: Driver Promotion ===")
-    print("A Gallant Leaf representative approaches your garage.")
-    print(f"\"{driver_name} is starting to get noticed. We want them in a promotional campaign.\"")
-    print("They’ll pay your team for access to the driver.\n")
-
-    print("Choose your response:")
-    print(f"1) Do the promo day")
-    print(f"   +£{option1_cash} to the team, prestige {option1_prestige:+.1f}")
-    print("   Minor fatigue hit to long-term car health\n")
-
-    print(f"2) Hard bargain for more money")
-    print(f"   +£{option2_cash} to the team, prestige {option2_prestige:+.1f}")
-    print(f"   Sponsor rate multiplier {option2_mult_delta:+.2f} (future sponsor pay)\n")
-
-    print(f"3) Refuse — keep focus on racing")
-    print(f"   +£{option3_cash}, prestige {option3_prestige:+.1f}")
-    print(f"   Sponsor rate multiplier {option3_mult_delta:+.2f} (future sponsor pay)\n")
-
-    choice = input("> ").strip()
-
-    # Default to 1 if Enter
-    if choice == "" or choice == "1":
-        # Money
-        state.money += option1_cash
-        state.last_week_income += option1_cash
-        state.last_week_sponsor_income += option1_cash
-        state.constructor_earnings += option1_cash
-
-        # Prestige
-        state.prestige = max(0.0, min(100.0, state.prestige + option1_prestige))
-
-        # Fatigue
-        state.engine_health = max(0.0, state.engine_health - option1_engine_health_hit)
-        state.chassis_health = max(0.0, state.chassis_health - option1_chassis_health_hit)
-
-        state.news.append(
-            f"{team_name} agree to a Gallant Leaf promo day featuring {driver_name}, "
-            f"earning £{option1_cash}."
-        )
-        state.news.append(
-            f"The long day of media commitments costs the garage focus: "
-            f"engine health -{option1_engine_health_hit:.1f}, chassis health -{option1_chassis_health_hit:.1f}."
-        )
-
-    elif choice == "2":
-        # Money
-        state.money += option2_cash
-        state.last_week_income += option2_cash
-        state.last_week_sponsor_income += option2_cash
-        state.constructor_earnings += option2_cash
-
-        # Prestige
-        state.prestige = max(0.0, min(100.0, state.prestige + option2_prestige))
-
-        # Sponsor multiplier up
-        mult = getattr(state, "sponsor_rate_multiplier", 1.0)
-        state.sponsor_rate_multiplier = max(0.5, min(2.0, mult + option2_mult_delta))
-
-        state.news.append(
-            f"{team_name} squeeze Gallant Leaf for a better promo fee: £{option2_cash} paid."
-        )
-        state.news.append(
-            f"Paddock whispers you’re ruthless (prestige {option2_prestige:+.1f}). "
-            f"Sponsor rate multiplier now {state.sponsor_rate_multiplier:.2f}."
-        )
-
-    else:
-        # Refuse
-        state.prestige = max(0.0, min(100.0, state.prestige + option3_prestige))
-
-        # Sponsor multiplier down
-        mult = getattr(state, "sponsor_rate_multiplier", 1.0)
-        state.sponsor_rate_multiplier = max(0.5, min(2.0, mult + option3_mult_delta))
-
-        state.news.append(
-            f"{team_name} refuse Gallant Leaf’s promo request and keep focus on racing "
-            f"(prestige {option3_prestige:+.1f})."
-        )
-        state.news.append(
-            f"Gallant Leaf are unimpressed. Sponsor rate multiplier now {state.sponsor_rate_multiplier:.2f}."
-        )
-
-    # Mark event as done
-    state.gallant_driver_promo_done = True
-
-
-def maybe_gallant_leaf_advert(state, time):
-    """
-    Once you reach Prestige ~5 with Gallant Leaf on board, they
-    invite you to star in a cigarette advert.
-
-    One-off cheque + slightly better payments on the existing deal.
-    """
-    # Need an active Gallant Leaf deal
-    if not state.sponsor_active or state.sponsor_name != "Gallant Leaf Tobacco":
-        return
-
-    # Only once
-    if state.sponsor_bonus_event_done:
-        return
-
-    # Only once you're vaguely "somebody" in the paddock
-    if state.prestige < 5.0:
-        return
-
-    print("\nA familiar Gallant Leaf representative finds you in the paddock hospitality tent.")
-    print("\"Your recent form has turned a few heads,\" he says with a smile.")
-    print("They'd like you and your car to feature in a cigarette advert campaign.")
-    print("In return, they'll sweeten your existing deal:")
-    print("  • £800 one-off payment for the advert")
-    print("  • Around 25% better appearance / points / podium money going forward.")
-    choice = input("\nDo you agree to the advert? (y/n): ").strip().lower()
-
-    state.sponsor_bonus_event_done = True
-
-    if choice != "y":
-        print("\nYou politely decline – you didn't get into racing to sell cigarettes.")
-        team_name = state.player_constructor or "Your team"
-        state.news.append(
-            f"{team_name} turn down a more aggressive Gallant Leaf advertising campaign."
-        )
-        return
-
-    # Pay the advert fee
-    advert_fee = 800
-    state.money += advert_fee
-    state.last_week_income += advert_fee
-    state.last_week_sponsor_income += advert_fee
-    state.constructor_earnings += advert_fee
-
-    # Sweeten future payments a bit
-    state.sponsor_rate_multiplier = 1.25
-
-    team_name = state.player_constructor or "Your team"
-    state.news.append(
-        f"{team_name} star in a Gallant Leaf advertising campaign, "
-        f"pocketing £{advert_fee} and improving the terms of their deal."
-    )
-
-    print("\nYou spend a long day posing with the car, a packet of cigarettes,")
-    print("and a forced smile. At least the cheque clears.")
-
-
-
 
 def maybe_weather_preparation(state, time):
     """
@@ -373,7 +126,7 @@ def maybe_weather_preparation(state, time):
     if not hasattr(state, 'pending_race_week') or not state.pending_race_week:
         return
 
-    # 8% chance when there's a pending race (reduced from 15%)
+    # 8% chance when there's a pending race
     if random.random() > 0.08:
         return
 
@@ -438,9 +191,978 @@ def maybe_weather_preparation(state, time):
 
     print(f"\nPreparation complete. {benefit_desc}.")
 
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def get_active_sponsors(state):
+    """Get list of currently active sponsors."""
+    if not hasattr(state, 'sponsors'):
+        state.sponsors = []
+    return state.sponsors
+
+
+def count_sponsors_by_tier(sponsors, tier):
+    """Count how many sponsors of a given tier the team has."""
+    return sum(1 for s in sponsors if s.get("tier") == tier)
+
+
+def can_accept_sponsor(state, sponsor_info, year):
+    """Check if team can accept another sponsor of this type."""
+    sponsors = get_active_sponsors(state)
+    tier = sponsor_info.get("tier", "associate")
+    tier_info = SPONSOR_TIERS.get(tier, {})
+    
+    # Check max slots overall
+    max_slots = get_max_sponsor_slots(year, state.prestige)
+    if len(sponsors) >= max_slots:
+        return False, f"Maximum {max_slots} sponsor slot(s) filled"
+    
+    # Check max per tier
+    max_per_tier = tier_info.get("max_per_team", 1)
+    current_of_tier = count_sponsors_by_tier(sponsors, tier)
+    if current_of_tier >= max_per_tier:
+        return False, f"Already have maximum {tier_info['name']} sponsor(s)"
+    
+    return True, "OK"
+
+
+def create_sponsor_contract(name, sponsor_info, start_year, duration=2):
+    """Create a new sponsor contract dictionary."""
+    return {
+        "name": name,
+        "tier": sponsor_info.get("tier", "associate"),
+        "start_year": start_year,
+        "end_year": start_year + duration,
+        "races_started": 0,
+        "podiums": 0,
+        "wins": 0,
+        "fastest_laps": 0,
+        "best_finish": None,
+        "no_engine_failures": 0,
+        "happiness": 50,  # Start neutral
+        "rate_multiplier": 1.0,
+        "goals_completed": {},
+        "bonus_events_done": set(),
+    }
+
+
+def get_sponsor_payment_multiplier(sponsor):
+    """Get the payment multiplier for a sponsor based on tier and happiness."""
+    tier = sponsor.get("tier", "associate")
+    tier_info = SPONSOR_TIERS.get(tier, {})
+    base_mult = tier_info.get("payment_mult", 0.35)
+    
+    # Happiness affects payments (50 = neutral, higher = better)
+    happiness = sponsor.get("happiness", 50)
+    happiness_mult = 0.8 + (happiness / 100) * 0.4  # 0.8 to 1.2
+    
+    # Rate multiplier from negotiations
+    rate_mult = sponsor.get("rate_multiplier", 1.0)
+    
+    return base_mult * happiness_mult * rate_mult
+
 
 # =============================================================================
-# TYRE SPONSORSHIP SYSTEM
+# SPONSOR OFFER SYSTEM
+# =============================================================================
+
+def maybe_offer_sponsor(state, time):
+    """
+    Main entry point for sponsor offers.
+    Can offer multiple sponsors over time, respecting slot limits.
+    """
+    # Don't spam offers too frequently
+    current_week = getattr(state, 'season_week', time.week if hasattr(time, 'week') else 1)
+    last_offer = getattr(state, 'sponsor_last_offer_week', 0)
+    
+    # Reset offered list at year start
+    if current_week < 5:
+        state.sponsors_offered_this_year = set()
+    
+    # Need at least 4 weeks between offers
+    if current_week - last_offer < 4 and last_offer > 0:
+        return
+    
+    # Need minimum prestige
+    if state.prestige < 1.5:
+        return
+    
+    # Need to have completed at least one race
+    if not getattr(state, "ever_completed_vallone", False) and len(getattr(state, 'race_history', [])) < 1:
+        return
+    
+    # Random chance (20% per eligible week)
+    if random.random() > 0.20:
+        return
+    
+    # Check if we have room for more sponsors
+    sponsors = get_active_sponsors(state)
+    max_slots = get_max_sponsor_slots(time.year, state.prestige)
+    
+    if len(sponsors) >= max_slots:
+        return  # Full up
+    
+    # Get available sponsors
+    available = get_available_sponsors(time.year, state.prestige, sponsors)
+    
+    # Filter out ones we've already been offered this year
+    offered_this_year = getattr(state, 'sponsors_offered_this_year', set())
+    available = [(n, i) for n, i in available if n not in offered_this_year]
+    
+    if not available:
+        return
+    
+    # Decide what tier to offer based on current sponsors and prestige
+    # Prefer to fill title slot first, then technical, then associate
+    offer_tier = None
+    
+    if state.prestige >= 3.0 and count_sponsors_by_tier(sponsors, "title") == 0:
+        title_options = get_sponsor_by_tier(available, "title")
+        if title_options:
+            offer_tier = "title"
+            available = title_options
+    
+    if offer_tier is None and state.prestige >= 2.0 and count_sponsors_by_tier(sponsors, "technical") == 0:
+        tech_options = get_sponsor_by_tier(available, "technical")
+        if tech_options:
+            offer_tier = "technical"
+            available = tech_options
+    
+    if offer_tier is None:
+        # Just pick from whatever's available
+        pass
+    
+    if not available:
+        return
+    
+    # Pick 1-2 sponsors to offer choice between
+    num_offers = min(2, len(available))
+    offers = random.sample(available, num_offers)
+    
+    # Present the offer(s)
+    state.sponsor_last_offer_week = current_week
+    present_sponsor_offers(state, time, offers)
+
+
+def present_sponsor_offers(state, time, offers):
+    """Present sponsor offer(s) to the player."""
+    team_name = state.player_constructor or "Your team"
+    
+    print(f"\n{'='*60}")
+    print(f"  💼 SPONSORSHIP {'OFFERS' if len(offers) > 1 else 'OFFER'}")
+    print(f"{'='*60}")
+    
+    if len(offers) == 1:
+        name, info = offers[0]
+        present_single_offer(state, time, name, info, team_name)
+    else:
+        present_multiple_offers(state, time, offers, team_name)
+
+
+def present_single_offer(state, time, name, info, team_name):
+    """Present a single sponsor offer."""
+    tier = info.get("tier", "associate")
+    tier_info = SPONSOR_TIERS.get(tier, {})
+    payments = info.get("base_payments", {})
+    goals = info.get("goals", {})
+    
+    print(f"\nA representative from {name} approaches your team.")
+    print(f'"{info.get("flavor", "We want to sponsor your racing team")}."')
+    print(f"\nThey offer a {tier_info.get('name', 'Sponsorship')} deal:")
+    
+    print(f"\n  PAYMENTS:")
+    print(f"    • £{payments.get('signing_bonus', 0):,} signing bonus")
+    print(f"    • £{payments.get('appearance', 0)} per race started")
+    print(f"    • £{payments.get('points', 0)} per championship point")
+    print(f"    • £{payments.get('podium', 0)} per podium finish")
+    print(f"    • £{payments.get('win', 0)} per race win")
+    
+    print(f"\n  GOALS (by end of contract):")
+    if "races_to_start" in goals:
+        print(f"    • Start at least {goals['races_to_start']} races")
+    if "podiums_required" in goals:
+        print(f"    • Achieve {goals['podiums_required']} podium(s)")
+    if "wins_required" in goals:
+        print(f"    • Win {goals['wins_required']} race(s)")
+    if "min_finish" in goals:
+        print(f"    • Finish in the top {goals['min_finish']} at least once")
+    if "fastest_laps" in goals:
+        print(f"    • Set {goals['fastest_laps']} fastest lap(s)")
+    if "championship_position" in goals:
+        print(f"    • Finish top {goals['championship_position']} in championship")
+    if "no_engine_failures" in goals:
+        print(f"    • Complete {goals['no_engine_failures']} races without engine failure")
+    
+    # Show special bonuses if any
+    special = info.get("special_bonus", {})
+    if special:
+        print(f"\n  SPECIAL BENEFITS:")
+        if "engine_reliability" in special:
+            print(f"    • +{special['engine_reliability']*100:.1f}% engine reliability bonus")
+        if "free_tyres" in special:
+            print(f"    • {special['free_tyres']} free tyre sets per race")
+        if "aero_development" in special:
+            print(f"    • +{special['aero_development']*100:.1f}% aero development speed")
+    
+    contract_years = 2
+    print(f"\n  Contract: {time.year} - {time.year + contract_years}")
+    
+    # Mark as offered
+    if not hasattr(state, 'sponsors_offered_this_year'):
+        state.sponsors_offered_this_year = set()
+    state.sponsors_offered_this_year.add(name)
+    
+    choice = input("\n  Accept this sponsorship? (y/n): ").strip().lower()
+    
+    if choice == "y":
+        accept_sponsor(state, time, name, info, contract_years)
+    else:
+        decline_sponsor(state, time, name, info)
+
+
+def present_multiple_offers(state, time, offers, team_name):
+    """Present multiple sponsor offers for player to choose from."""
+    print(f"\nMultiple sponsors are interested in {team_name}!")
+    print("Choose which offer to pursue:\n")
+    
+    for i, (name, info) in enumerate(offers, 1):
+        tier = info.get("tier", "associate")
+        tier_info = SPONSOR_TIERS.get(tier, {})
+        payments = info.get("base_payments", {})
+        
+        print(f"  {i}) {name} ({tier_info.get('name', 'Sponsor')})")
+        print(f"     \"{info.get('flavor', '')}\"")
+        print(f"     Signing bonus: £{payments.get('signing_bonus', 0):,}")
+        print(f"     Per race: £{payments.get('appearance', 0)} | Per podium: £{payments.get('podium', 0)}")
+        
+        # Show a key goal
+        goals = info.get("goals", {})
+        if "wins_required" in goals:
+            print(f"     Key goal: Win {goals['wins_required']} race(s)")
+        elif "podiums_required" in goals:
+            print(f"     Key goal: {goals['podiums_required']} podium(s)")
+        elif "races_to_start" in goals:
+            print(f"     Key goal: Start {goals['races_to_start']} races")
+        print()
+    
+    print(f"  {len(offers) + 1}) Decline all offers")
+    
+    # Mark all as offered
+    if not hasattr(state, 'sponsors_offered_this_year'):
+        state.sponsors_offered_this_year = set()
+    for name, _ in offers:
+        state.sponsors_offered_this_year.add(name)
+    
+    try:
+        choice = int(input("\n  Your choice: ").strip())
+    except ValueError:
+        choice = len(offers) + 1
+    
+    if 1 <= choice <= len(offers):
+        name, info = offers[choice - 1]
+        # Show full details then confirm
+        print(f"\n--- {name} Full Details ---")
+        present_single_offer(state, time, name, info, team_name)
+    else:
+        print("\nYou decline all offers for now.")
+        state.news.append(f"{team_name} turns down sponsorship approaches.")
+
+
+def accept_sponsor(state, time, name, info, duration):
+    """Accept a sponsor and add to active list."""
+    team_name = state.player_constructor or "Your team"
+    
+    # Create the contract
+    contract = create_sponsor_contract(name, info, time.year, duration)
+    
+    # Add to sponsors list
+    sponsors = get_active_sponsors(state)
+    sponsors.append(contract)
+    
+    # Pay signing bonus
+    payments = info.get("base_payments", {})
+    bonus = payments.get("signing_bonus", 0)
+    if bonus > 0:
+        state.money += bonus
+        state.last_week_income += bonus
+        state.last_week_sponsor_income += bonus
+        state.constructor_earnings += bonus
+    
+    # Update legacy fields for compatibility
+    if contract["tier"] == "title":
+        state.sponsor_active = True
+        state.sponsor_name = name
+        state.sponsor_start_year = time.year
+        state.sponsor_end_year = time.year + duration
+        state.sponsor_races_started = 0
+        state.sponsor_podiums = 0
+    
+    tier_info = SPONSOR_TIERS.get(contract["tier"], {})
+    
+    print(f"\n✅ Deal signed with {name}!")
+    print(f"   £{bonus:,} signing bonus received.")
+    state.news.append(f"SPONSORSHIP: {team_name} signs {tier_info.get('name', 'sponsorship')} deal with {name}!")
+
+
+def decline_sponsor(state, time, name, info):
+    """Decline a sponsor offer."""
+    team_name = state.player_constructor or "Your team"
+    
+    # Small prestige boost for independence
+    before = state.prestige
+    state.prestige = min(100.0, state.prestige + 0.3)
+    
+    print(f"\nYou politely decline {name}'s offer.")
+    print(f"   (Prestige +0.3 for maintaining independence)")
+    state.news.append(f"{team_name} declines sponsorship from {name}.")
+
+
+# =============================================================================
+# SPONSOR PAYMENT PROCESSING
+# =============================================================================
+
+def process_sponsor_race_start(state, time, race_name):
+    """Process sponsor payments for starting a race."""
+    sponsors = get_active_sponsors(state)
+    total_appearance = 0
+    
+    for sponsor in sponsors:
+        # Check contract is still active
+        if time.year > sponsor.get("end_year", 0):
+            continue
+        
+        sponsor_name = sponsor.get("name")
+        sponsor_info = SPONSORS.get(sponsor_name, {})
+        payments = sponsor_info.get("base_payments", {})
+        
+        # Calculate appearance payment
+        mult = get_sponsor_payment_multiplier(sponsor)
+        appearance = int(payments.get("appearance", 0) * mult)
+        
+        if appearance > 0:
+            total_appearance += appearance
+        
+        # Track race started
+        sponsor["races_started"] = sponsor.get("races_started", 0) + 1
+        
+        # Update legacy tracking for title sponsor
+        if sponsor["tier"] == "title":
+            state.sponsor_races_started = sponsor["races_started"]
+    
+    if total_appearance > 0:
+        state.money += total_appearance
+        state.last_week_income += total_appearance
+        state.last_week_sponsor_income += total_appearance
+        state.constructor_earnings += total_appearance
+    
+    return total_appearance
+
+
+def process_sponsor_race_finish(state, time, finish_pos, is_podium, is_win, got_fastest_lap, had_engine_failure):
+    """Process sponsor payments and goal tracking after a race."""
+    sponsors = get_active_sponsors(state)
+    total_payment = 0
+    
+    for sponsor in sponsors:
+        if time.year > sponsor.get("end_year", 0):
+            continue
+        
+        sponsor_name = sponsor.get("name")
+        sponsor_info = SPONSORS.get(sponsor_name, {})
+        payments = sponsor_info.get("base_payments", {})
+        goals = sponsor_info.get("goals", {})
+        goal_bonuses = sponsor_info.get("goal_bonuses", {})
+        
+        mult = get_sponsor_payment_multiplier(sponsor)
+        
+        # Track best finish
+        if finish_pos is not None:
+            current_best = sponsor.get("best_finish")
+            if current_best is None or finish_pos < current_best:
+                sponsor["best_finish"] = finish_pos
+        
+        # Podium payment and tracking
+        if is_podium:
+            sponsor["podiums"] = sponsor.get("podiums", 0) + 1
+            podium_pay = int(payments.get("podium", 0) * mult)
+            total_payment += podium_pay
+            
+            # Update legacy
+            if sponsor["tier"] == "title":
+                state.sponsor_podiums = sponsor["podiums"]
+        
+        # Win payment and tracking
+        if is_win:
+            sponsor["wins"] = sponsor.get("wins", 0) + 1
+            win_pay = int(payments.get("win", 0) * mult)
+            total_payment += win_pay
+        
+        # Fastest lap tracking
+        if got_fastest_lap:
+            sponsor["fastest_laps"] = sponsor.get("fastest_laps", 0) + 1
+        
+        # Engine failure tracking
+        if had_engine_failure:
+            sponsor["no_engine_failures"] = 0
+        else:
+            sponsor["no_engine_failures"] = sponsor.get("no_engine_failures", 0) + 1
+        
+        # Check and award goal completion bonuses
+        total_payment += check_and_award_goal_bonuses(state, sponsor, sponsor_info)
+        
+        # Happiness adjustments
+        if is_win:
+            sponsor["happiness"] = min(100, sponsor.get("happiness", 50) + 10)
+        elif is_podium:
+            sponsor["happiness"] = min(100, sponsor.get("happiness", 50) + 5)
+        elif finish_pos and finish_pos <= 6:
+            sponsor["happiness"] = min(100, sponsor.get("happiness", 50) + 2)
+        elif had_engine_failure:
+            sponsor["happiness"] = max(0, sponsor.get("happiness", 50) - 5)
+    
+    if total_payment > 0:
+        state.money += total_payment
+        state.last_week_income += total_payment
+        state.last_week_sponsor_income += total_payment
+        state.constructor_earnings += total_payment
+    
+    return total_payment
+
+
+def process_sponsor_championship_points(state, time, points_earned):
+    """Process sponsor payments for championship points."""
+    if points_earned <= 0:
+        return 0
+    
+    sponsors = get_active_sponsors(state)
+    total_payment = 0
+    
+    for sponsor in sponsors:
+        if time.year > sponsor.get("end_year", 0):
+            continue
+        
+        sponsor_name = sponsor.get("name")
+        sponsor_info = SPONSORS.get(sponsor_name, {})
+        payments = sponsor_info.get("base_payments", {})
+        
+        mult = get_sponsor_payment_multiplier(sponsor)
+        points_pay = int(payments.get("points", 0) * points_earned * mult)
+        total_payment += points_pay
+    
+    if total_payment > 0:
+        state.money += total_payment
+        state.last_week_income += total_payment
+        state.last_week_sponsor_income += total_payment
+        state.constructor_earnings += total_payment
+    
+    return total_payment
+
+
+def check_and_award_goal_bonuses(state, sponsor, sponsor_info):
+    """Check if sponsor goals have been met and award bonuses."""
+    goals = sponsor_info.get("goals", {})
+    goal_bonuses = sponsor_info.get("goal_bonuses", {})
+    goals_completed = sponsor.get("goals_completed", {})
+    
+    total_bonus = 0
+    
+    # Races started goal
+    races_req = goals.get("races_to_start", 0)
+    if races_req > 0 and not goals_completed.get("races_started"):
+        if sponsor.get("races_started", 0) >= races_req:
+            goals_completed["races_started"] = True
+            bonus = goal_bonuses.get("races_completed", 0)
+            total_bonus += bonus
+            if bonus > 0:
+                state.news.append(f"SPONSOR GOAL: {sponsor['name']} - Completed {races_req} races! +£{bonus}")
+    
+    # Podiums goal
+    pods_req = goals.get("podiums_required", 0)
+    if pods_req > 0 and not goals_completed.get("podiums"):
+        if sponsor.get("podiums", 0) >= pods_req:
+            goals_completed["podiums"] = True
+            bonus = goal_bonuses.get("podium_achieved", 0)
+            total_bonus += bonus
+            if bonus > 0:
+                state.news.append(f"SPONSOR GOAL: {sponsor['name']} - Achieved {pods_req} podium(s)! +£{bonus}")
+    
+    # Wins goal
+    wins_req = goals.get("wins_required", 0)
+    if wins_req > 0 and not goals_completed.get("wins"):
+        if sponsor.get("wins", 0) >= wins_req:
+            goals_completed["wins"] = True
+            bonus = goal_bonuses.get("win_achieved", 0)
+            total_bonus += bonus
+            if bonus > 0:
+                state.news.append(f"SPONSOR GOAL: {sponsor['name']} - Won {wins_req} race(s)! +£{bonus}")
+    
+    # Min finish goal
+    min_finish = goals.get("min_finish")
+    if min_finish and not goals_completed.get("min_finish"):
+        best = sponsor.get("best_finish")
+        if best is not None and best <= min_finish:
+            goals_completed["min_finish"] = True
+            bonus = goal_bonuses.get("finish_bonus", 0)
+            total_bonus += bonus
+            if bonus > 0:
+                state.news.append(f"SPONSOR GOAL: {sponsor['name']} - Finished top {min_finish}! +£{bonus}")
+    
+    # Fastest laps goal
+    fl_req = goals.get("fastest_laps", 0)
+    if fl_req > 0 and not goals_completed.get("fastest_laps"):
+        if sponsor.get("fastest_laps", 0) >= fl_req:
+            goals_completed["fastest_laps"] = True
+            bonus = goal_bonuses.get("fastest_lap_bonus", 0)
+            total_bonus += bonus
+            if bonus > 0:
+                state.news.append(f"SPONSOR GOAL: {sponsor['name']} - Set {fl_req} fastest lap(s)! +£{bonus}")
+    
+    # No engine failures goal
+    clean_req = goals.get("no_engine_failures", 0)
+    if clean_req > 0 and not goals_completed.get("reliability"):
+        if sponsor.get("no_engine_failures", 0) >= clean_req:
+            goals_completed["reliability"] = True
+            bonus = goal_bonuses.get("reliability_bonus", 0)
+            total_bonus += bonus
+            if bonus > 0:
+                state.news.append(f"SPONSOR GOAL: {sponsor['name']} - {clean_req} clean races! +£{bonus}")
+    
+    sponsor["goals_completed"] = goals_completed
+    
+    # Update legacy goal tracking
+    if sponsor["tier"] == "title":
+        state.sponsor_goals_races_started = goals_completed.get("races_started", False)
+        state.sponsor_goals_podium = goals_completed.get("podiums", False)
+    
+    return total_bonus
+
+
+# =============================================================================
+# SPONSOR EVENTS SYSTEM
+# =============================================================================
+
+def maybe_trigger_sponsor_event(state, time):
+    """Randomly trigger sponsor events."""
+    sponsors = get_active_sponsors(state)
+    
+    if not sponsors:
+        return
+    
+    # 8% chance per week for an event
+    if random.random() > 0.08:
+        return
+    
+    # Pick a random active sponsor
+    active = [s for s in sponsors if time.year <= s.get("end_year", 0)]
+    if not active:
+        return
+    
+    sponsor = random.choice(active)
+    sponsor_name = sponsor.get("name")
+    sponsor_info = SPONSORS.get(sponsor_name, {})
+    
+    # Get possible events for this sponsor
+    possible_events = sponsor_info.get("events", [])
+    if not possible_events:
+        return
+    
+    # Filter out events already done
+    done_events = sponsor.get("bonus_events_done", set())
+    available_events = [e for e in possible_events if e not in done_events]
+    
+    if not available_events:
+        return
+    
+    event_id = random.choice(available_events)
+    event_info = SPONSOR_EVENTS.get(event_id)
+    
+    if not event_info:
+        return
+    
+    # Special trigger conditions
+    trigger = event_info.get("trigger")
+    if trigger == "after_podium" and sponsor.get("podiums", 0) < 1:
+        return
+    
+    present_sponsor_event(state, time, sponsor, event_id, event_info)
+
+
+def present_sponsor_event(state, time, sponsor, event_id, event_info):
+    """Present a sponsor event to the player."""
+    sponsor_name = sponsor.get("name")
+    team_name = state.player_constructor or "Your team"
+    driver_name = state.player_driver.get("name", "your driver") if state.player_driver else "your driver"
+    
+    print(f"\n{'='*60}")
+    print(f"  📋 SPONSOR EVENT: {sponsor_name}")
+    print(f"{'='*60}")
+    print(f"\n  {event_info.get('name', 'Event')}")
+    print(f"  {event_info.get('description', '')}")
+    
+    options = event_info.get("options", [])
+    
+    print("\n  Options:")
+    for i, opt in enumerate(options, 1):
+        text = opt.get("text", "Option")
+        money = opt.get("money", 0)
+        prestige = opt.get("prestige", 0)
+        happiness = opt.get("sponsor_happiness", 0)
+        
+        print(f"\n  {i}) {text}")
+        if money != 0:
+            sign = "+" if money >= 0 else ""
+            print(f"      Money: {sign}£{money}")
+        if prestige != 0:
+            sign = "+" if prestige >= 0 else ""
+            print(f"      Prestige: {sign}{prestige:.1f}")
+        if happiness != 0:
+            sign = "+" if happiness >= 0 else ""
+            print(f"      Sponsor happiness: {sign}{happiness}")
+    
+    try:
+        choice = int(input("\n  Your choice: ").strip())
+        if choice < 1 or choice > len(options):
+            choice = 1
+    except ValueError:
+        choice = 1
+    
+    chosen = options[choice - 1]
+    apply_event_outcome(state, sponsor, event_id, chosen, team_name, driver_name)
+
+
+def apply_event_outcome(state, sponsor, event_id, outcome, team_name, driver_name):
+    """Apply the outcome of a sponsor event."""
+    # Mark event as done
+    if "bonus_events_done" not in sponsor:
+        sponsor["bonus_events_done"] = set()
+    sponsor["bonus_events_done"].add(event_id)
+    
+    # Apply money
+    money = outcome.get("money", 0)
+    if money != 0:
+        state.money += money
+        if money > 0:
+            state.last_week_income += money
+            state.last_week_sponsor_income += money
+            state.constructor_earnings += money
+    
+    # Apply prestige
+    prestige = outcome.get("prestige", 0)
+    if prestige != 0:
+        state.prestige = max(0.0, min(100.0, state.prestige + prestige))
+    
+    # Apply sponsor happiness
+    happiness = outcome.get("sponsor_happiness", 0)
+    if happiness != 0:
+        sponsor["happiness"] = max(0, min(100, sponsor.get("happiness", 50) + happiness))
+    
+    # Apply fatigue (small engine/chassis health penalty)
+    fatigue = outcome.get("fatigue", 0)
+    if fatigue > 0:
+        state.engine_health = max(0.0, getattr(state, 'engine_health', 100) - fatigue * 0.5)
+        state.chassis_health = max(0.0, getattr(state, 'chassis_health', 100) - fatigue * 0.3)
+    
+    # Apply special bonuses
+    special = outcome.get("special", {})
+    if "free_tyres" in special:
+        state.tyre_sets = getattr(state, 'tyre_sets', 0) + special["free_tyres"]
+        state.news.append(f"Received {special['free_tyres']} free tyre sets from sponsor!")
+    
+    # Generate news
+    sponsor_name = sponsor.get("name")
+    if money > 0:
+        state.news.append(f"SPONSOR: {sponsor_name} event - {team_name} receives £{money}.")
+    elif money < 0:
+        state.news.append(f"SPONSOR: {sponsor_name} event - {team_name} pays £{abs(money)}.")
+    else:
+        state.news.append(f"SPONSOR: {sponsor_name} event completed.")
+    
+    print(f"\n  Outcome applied.")
+
+
+# =============================================================================
+# END OF SEASON REVIEW
+# =============================================================================
+
+def review_sponsor_contracts(state, time):
+    """End of season sponsor contract review."""
+    sponsors = get_active_sponsors(state)
+    
+    expiring = [s for s in sponsors if s.get("end_year", 0) == time.year]
+    
+    for sponsor in expiring:
+        review_single_sponsor(state, time, sponsor)
+
+
+def review_single_sponsor(state, time, sponsor):
+    """Review a single expiring sponsor contract."""
+    sponsor_name = sponsor.get("name")
+    sponsor_info = SPONSORS.get(sponsor_name, {})
+    goals = sponsor_info.get("goals", {})
+    goals_completed = sponsor.get("goals_completed", {})
+    
+    print(f"\n{'='*60}")
+    print(f"  📊 SPONSOR REVIEW: {sponsor_name}")
+    print(f"{'='*60}")
+    
+    # Check which goals were met
+    all_goals_met = True
+    
+    print("\n  Goal Status:")
+    
+    if "races_to_start" in goals:
+        met = goals_completed.get("races_started", False)
+        status = "✅" if met else "❌"
+        print(f"    {status} Races started: {sponsor.get('races_started', 0)}/{goals['races_to_start']}")
+        if not met:
+            all_goals_met = False
+    
+    if "podiums_required" in goals:
+        met = goals_completed.get("podiums", False)
+        status = "✅" if met else "❌"
+        print(f"    {status} Podiums: {sponsor.get('podiums', 0)}/{goals['podiums_required']}")
+        if not met:
+            all_goals_met = False
+    
+    if "wins_required" in goals:
+        met = goals_completed.get("wins", False)
+        status = "✅" if met else "❌"
+        print(f"    {status} Wins: {sponsor.get('wins', 0)}/{goals['wins_required']}")
+        if not met:
+            all_goals_met = False
+    
+    if "min_finish" in goals:
+        met = goals_completed.get("min_finish", False)
+        best = sponsor.get("best_finish", "N/A")
+        status = "✅" if met else "❌"
+        print(f"    {status} Best finish: P{best} (needed top {goals['min_finish']})")
+        if not met:
+            all_goals_met = False
+    
+    if "fastest_laps" in goals:
+        met = goals_completed.get("fastest_laps", False)
+        status = "✅" if met else "❌"
+        print(f"    {status} Fastest laps: {sponsor.get('fastest_laps', 0)}/{goals['fastest_laps']}")
+        if not met:
+            all_goals_met = False
+    
+    happiness = sponsor.get("happiness", 50)
+    print(f"\n  Sponsor satisfaction: {happiness}/100")
+    
+    if all_goals_met:
+        print("\n  ✅ ALL GOALS MET!")
+        state.prestige = min(100.0, state.prestige + 1.5)
+        print("     Prestige +1.5")
+        
+        # Offer renewal with better terms
+        offer_sponsor_renewal(state, time, sponsor, sponsor_info, improved=True)
+    elif happiness >= 40:
+        print("\n  ⚠️ Some goals missed, but sponsor is satisfied enough to continue.")
+        offer_sponsor_renewal(state, time, sponsor, sponsor_info, improved=False)
+    else:
+        print("\n  ❌ SPONSOR DISAPPOINTED")
+        state.prestige = max(0.0, state.prestige - 2.0)
+        print("     Prestige -2.0")
+        print(f"     {sponsor_name} will not renew.")
+        
+        # Remove from sponsors list
+        sponsors = get_active_sponsors(state)
+        if sponsor in sponsors:
+            sponsors.remove(sponsor)
+        
+        state.news.append(f"SPONSOR: {sponsor_name} ends partnership after disappointing results.")
+
+
+def offer_sponsor_renewal(state, time, sponsor, sponsor_info, improved):
+    """Offer sponsor contract renewal."""
+    sponsor_name = sponsor.get("name")
+    payments = sponsor_info.get("base_payments", {})
+    
+    if improved:
+        print(f"\n  {sponsor_name} offers improved renewal terms:")
+        rate_bonus = 0.25
+        renewal_bonus = int(payments.get("signing_bonus", 0) * 0.5)
+    else:
+        print(f"\n  {sponsor_name} offers standard renewal:")
+        rate_bonus = 0
+        renewal_bonus = 0
+    
+    print(f"    • {2}-year extension")
+    if renewal_bonus > 0:
+        print(f"    • £{renewal_bonus} renewal bonus")
+    if rate_bonus > 0:
+        print(f"    • +{int(rate_bonus*100)}% improved payment rates")
+    
+    choice = input("\n  Renew contract? (y/n): ").strip().lower()
+    
+    if choice == "y":
+        # Extend contract
+        sponsor["start_year"] = time.year + 1
+        sponsor["end_year"] = time.year + 3
+        sponsor["races_started"] = 0
+        sponsor["podiums"] = 0
+        sponsor["wins"] = 0
+        sponsor["fastest_laps"] = 0
+        sponsor["best_finish"] = None
+        sponsor["no_engine_failures"] = 0
+        sponsor["goals_completed"] = {}
+        
+        if improved:
+            sponsor["rate_multiplier"] = sponsor.get("rate_multiplier", 1.0) + rate_bonus
+        
+        if renewal_bonus > 0:
+            state.money += renewal_bonus
+            state.last_week_income += renewal_bonus
+            state.last_week_sponsor_income += renewal_bonus
+            state.constructor_earnings += renewal_bonus
+        
+        print(f"\n  ✅ Contract renewed through {sponsor['end_year']}!")
+        state.news.append(f"SPONSOR: {sponsor_name} renews partnership!")
+    else:
+        # Remove sponsor
+        sponsors = get_active_sponsors(state)
+        if sponsor in sponsors:
+            sponsors.remove(sponsor)
+        
+        print(f"\n  Partnership with {sponsor_name} ends.")
+        state.news.append(f"SPONSOR: {sponsor_name} partnership ends - no renewal.")
+
+
+# =============================================================================
+# DISPLAY FUNCTIONS
+# =============================================================================
+
+def show_sponsor_status(state, time):
+    """Display current sponsorship status."""
+    sponsors = get_active_sponsors(state)
+    max_slots = get_max_sponsor_slots(time.year, state.prestige)
+    
+    print(f"\n{'='*60}")
+    print(f"  💼 SPONSORSHIP STATUS")
+    print(f"{'='*60}")
+    print(f"\n  Sponsor slots: {len(sponsors)}/{max_slots}")
+    
+    if not sponsors:
+        print("\n  No active sponsors.")
+        print("  Complete races and build prestige to attract sponsors.")
+        return
+    
+    for sponsor in sponsors:
+        if time.year > sponsor.get("end_year", 0):
+            continue
+        
+        sponsor_name = sponsor.get("name")
+        sponsor_info = SPONSORS.get(sponsor_name, {})
+        tier = sponsor.get("tier", "associate")
+        tier_info = SPONSOR_TIERS.get(tier, {})
+        goals = sponsor_info.get("goals", {})
+        goals_completed = sponsor.get("goals_completed", {})
+        
+        print(f"\n  ─── {sponsor_name} ({tier_info.get('name', 'Sponsor')}) ───")
+        print(f"  Contract: {sponsor.get('start_year')}-{sponsor.get('end_year')}")
+        print(f"  Happiness: {sponsor.get('happiness', 50)}/100")
+        
+        print("  Goals:")
+        if "races_to_start" in goals:
+            met = goals_completed.get("races_started", False)
+            status = "✅" if met else f"{sponsor.get('races_started', 0)}/{goals['races_to_start']}"
+            print(f"    Races: {status}")
+        
+        if "podiums_required" in goals:
+            met = goals_completed.get("podiums", False)
+            status = "✅" if met else f"{sponsor.get('podiums', 0)}/{goals['podiums_required']}"
+            print(f"    Podiums: {status}")
+        
+        if "wins_required" in goals:
+            met = goals_completed.get("wins", False)
+            status = "✅" if met else f"{sponsor.get('wins', 0)}/{goals['wins_required']}"
+            print(f"    Wins: {status}")
+        
+        if "min_finish" in goals:
+            met = goals_completed.get("min_finish", False)
+            best = sponsor.get("best_finish", "N/A")
+            status = "✅" if met else f"P{best} (need top {goals['min_finish']})"
+            print(f"    Best finish: {status}")
+
+
+def get_sponsor_special_bonuses(state):
+    """Get cumulative special bonuses from all sponsors."""
+    sponsors = get_active_sponsors(state)
+    bonuses = {
+        "engine_reliability": 0,
+        "free_tyres": 0,
+        "aero_development": 0,
+    }
+    
+    for sponsor in sponsors:
+        sponsor_name = sponsor.get("name")
+        sponsor_info = SPONSORS.get(sponsor_name, {})
+        special = sponsor_info.get("special_bonus", {})
+        
+        for key in bonuses:
+            if key in special:
+                bonuses[key] += special[key]
+    
+    return bonuses
+
+
+# =============================================================================
+# LEGACY COMPATIBILITY - Keep old functions working
+# =============================================================================
+
+def maybe_gallant_driver_promo(state, time):
+    """Legacy: Gallant driver promo event (now handled by general event system)."""
+    # Check if Gallant is a sponsor
+    sponsors = get_active_sponsors(state)
+    gallant = next((s for s in sponsors if s.get("name") == "Gallant Leaf Tobacco"), None)
+    
+    if not gallant:
+        return
+    
+    # Only trigger once
+    if "driver_promo" in gallant.get("bonus_events_done", set()):
+        return
+    
+    # Need a driver with fame 2+
+    if not state.player_driver:
+        return
+    
+    if state.player_driver.get("fame", 0) < 2:
+        return
+    
+    # Trigger the event
+    event_info = SPONSOR_EVENTS.get("driver_promo")
+    if event_info:
+        present_sponsor_event(state, time, gallant, "driver_promo", event_info)
+
+
+def maybe_gallant_leaf_advert(state, time):
+    """Legacy: Gallant advert event (now handled by general event system)."""
+    sponsors = get_active_sponsors(state)
+    gallant = next((s for s in sponsors if s.get("name") == "Gallant Leaf Tobacco"), None)
+    
+    if not gallant:
+        return
+    
+    if "advert_shoot" in gallant.get("bonus_events_done", set()):
+        return
+    
+    if state.prestige < 5.0:
+        return
+    
+    event_info = SPONSOR_EVENTS.get("advert_shoot")
+    if event_info:
+        present_sponsor_event(state, time, gallant, "advert_shoot", event_info)
+
+
+def maybe_sponsor_media_event(state, time):
+    """Generate random media flavor events for sponsors."""
+    maybe_trigger_sponsor_event(state, time)
+
+
+# =============================================================================
+# TYRE SPONSORSHIP SYSTEM (Keep existing)
 # =============================================================================
 
 TYRE_SPONSORS = {
@@ -451,7 +1173,7 @@ TYRE_SPONSORS = {
         "tyres_per_race": 2,
         "goals": {
             "races_to_complete": 5,
-            "min_finish_position": 10,  # Must finish in top 10 at least once
+            "min_finish_position": 10,
         },
     },
     "Veloce Gomme": {
@@ -461,7 +1183,7 @@ TYRE_SPONSORS = {
         "tyres_per_race": 3,
         "goals": {
             "races_to_complete": 4,
-            "min_finish_position": 6,  # Must finish in top 6
+            "min_finish_position": 6,
             "podiums_required": 1,
         },
     },
@@ -491,28 +1213,20 @@ TYRE_SPONSORS = {
 
 
 def maybe_offer_tyre_sponsorship(state, time):
-    """
-    Offer a tyre sponsorship deal to teams that don't have one.
-    Triggered after races, similar to regular sponsors.
-    """
-    # Already have tyre sponsorship
+    """Offer a tyre sponsorship deal."""
     if getattr(state, 'tyre_sponsor_active', False):
         return
     
-    # Already seen an offer this season
     if getattr(state, 'tyre_sponsor_offer_seen_year', 0) == time.year:
         return
     
-    # Need at least one race completed
     races_completed = getattr(state, 'season_races_completed', 0)
     if races_completed < 1:
         return
     
-    # Random chance (30% per race after first)
     if random.random() > 0.30:
         return
     
-    # Find eligible sponsors based on prestige
     available = []
     for name, info in TYRE_SPONSORS.items():
         if state.prestige >= info["min_prestige"]:
@@ -521,9 +1235,7 @@ def maybe_offer_tyre_sponsorship(state, time):
     if not available:
         return
     
-    # Pick one randomly (weighted toward lower prestige ones for early game)
     sponsor_name, sponsor_info = random.choice(available)
-    
     state.tyre_sponsor_offer_seen_year = time.year
     
     print(f"\n{'='*60}")
@@ -533,18 +1245,16 @@ def maybe_offer_tyre_sponsorship(state, time):
     print(f'"{sponsor_info["flavor"]}."')
     print(f"\nThey offer a tyre supply deal for the {time.year} season:")
     print(f"  • {sponsor_info['tyres_per_race']} FREE tyre sets delivered before each race")
-    print(f"\nIn exchange, you must complete these goals by season end:")
+    print(f"\nGoals by season end:")
     
     goals = sponsor_info["goals"]
     print(f"  • Complete at least {goals['races_to_complete']} races")
     if "min_finish_position" in goals:
         print(f"  • Finish in the top {goals['min_finish_position']} at least once")
     if "podiums_required" in goals:
-        print(f"  • Achieve {goals['podiums_required']} podium finish{'es' if goals['podiums_required'] > 1 else ''}")
+        print(f"  • Achieve {goals['podiums_required']} podium(s)")
     if "wins_required" in goals:
-        print(f"  • Win {goals['wins_required']} race{'s' if goals['wins_required'] > 1 else ''}")
-    
-    print(f"\n⚠️  WARNING: Failing to meet goals will damage your reputation!")
+        print(f"  • Win {goals['wins_required']} race(s)")
     
     choice = input("\nAccept the tyre sponsorship? (y/n): ").strip().lower()
     
@@ -554,33 +1264,26 @@ def maybe_offer_tyre_sponsorship(state, time):
         state.tyre_sponsor_year = time.year
         state.tyre_sponsor_tyres_per_race = sponsor_info["tyres_per_race"]
         state.tyre_sponsor_goals = dict(goals)
-        
-        # Track progress
         state.tyre_sponsor_races_completed = 0
         state.tyre_sponsor_best_finish = 99
         state.tyre_sponsor_podiums = 0
         state.tyre_sponsor_wins = 0
         
-        # Give initial tyres
         initial_tyres = sponsor_info["tyres_per_race"] * 2
         state.tyre_sets = getattr(state, 'tyre_sets', 0) + initial_tyres
         
         print(f"\n✅ Deal signed with {sponsor_name}!")
-        print(f"   {initial_tyres} tyre sets delivered to your garage immediately.")
-        state.news.append(f"TYRE DEAL: {sponsor_name} signs tyre supply agreement with your team!")
+        print(f"   {initial_tyres} tyre sets delivered immediately.")
+        state.news.append(f"TYRE DEAL: {sponsor_name} signs with your team!")
     else:
-        print(f"\nYou politely decline {sponsor_name}'s offer.")
-        state.news.append(f"Your team declines a tyre sponsorship offer from {sponsor_name}.")
+        print(f"\nYou decline {sponsor_name}'s offer.")
 
 
 def deliver_tyre_sponsor_tyres(state, time, race_name):
-    """
-    Called before each race to deliver sponsor tyres.
-    """
+    """Deliver sponsor tyres before a race."""
     if not getattr(state, 'tyre_sponsor_active', False):
         return
     
-    # Check if still in contract year
     if time.year != getattr(state, 'tyre_sponsor_year', 0):
         return
     
@@ -590,13 +1293,10 @@ def deliver_tyre_sponsor_tyres(state, time, race_name):
     if tyres > 0:
         state.tyre_sets = getattr(state, 'tyre_sets', 0) + tyres
         print(f"\n🛞 {sponsor_name} delivers {tyres} tyre sets for {race_name}.")
-        state.news.append(f"TYRES: {sponsor_name} delivers {tyres} sets for {race_name}.")
 
 
 def update_tyre_sponsor_progress(state, finish_position, is_podium, is_win):
-    """
-    Called after each race to update tyre sponsor goal progress.
-    """
+    """Update tyre sponsor goal progress after a race."""
     if not getattr(state, 'tyre_sponsor_active', False):
         return
     
@@ -613,9 +1313,7 @@ def update_tyre_sponsor_progress(state, finish_position, is_podium, is_win):
 
 
 def check_tyre_sponsor_goals(state, time):
-    """
-    Called at end of season to check if tyre sponsor goals were met.
-    """
+    """Check tyre sponsor goals at end of season."""
     if not getattr(state, 'tyre_sponsor_active', False):
         return
     
@@ -630,61 +1328,45 @@ def check_tyre_sponsor_goals(state, time):
     podiums = getattr(state, 'tyre_sponsor_podiums', 0)
     wins = getattr(state, 'tyre_sponsor_wins', 0)
     
-    # Check each goal
     goals_met = True
-    failed_goals = []
+    failed = []
     
     if races_done < goals.get('races_to_complete', 0):
         goals_met = False
-        failed_goals.append(f"Only completed {races_done}/{goals['races_to_complete']} races")
+        failed.append(f"Races: {races_done}/{goals['races_to_complete']}")
     
     if 'min_finish_position' in goals and best_finish > goals['min_finish_position']:
         goals_met = False
-        failed_goals.append(f"Best finish was P{best_finish}, needed top {goals['min_finish_position']}")
+        failed.append(f"Best finish: P{best_finish}, needed top {goals['min_finish_position']}")
     
     if 'podiums_required' in goals and podiums < goals['podiums_required']:
         goals_met = False
-        failed_goals.append(f"Only {podiums}/{goals['podiums_required']} podiums")
+        failed.append(f"Podiums: {podiums}/{goals['podiums_required']}")
     
     if 'wins_required' in goals and wins < goals['wins_required']:
         goals_met = False
-        failed_goals.append(f"Only {wins}/{goals['wins_required']} wins")
+        failed.append(f"Wins: {wins}/{goals['wins_required']}")
     
     print(f"\n{'='*60}")
-    print(f"  🛞 TYRE SPONSORSHIP REVIEW — {sponsor_name}")
+    print(f"  🛞 TYRE SPONSOR REVIEW — {sponsor_name}")
     print(f"{'='*60}")
     
     if goals_met:
-        print(f"\n✅ GOALS MET! {sponsor_name} is pleased with your performance.")
-        print(f"   They may offer an improved deal next season.")
-        state.news.append(f"TYRE SPONSOR: {sponsor_name} satisfied — goals achieved!")
-        
-        # Small prestige boost
+        print(f"\n✅ GOALS MET! {sponsor_name} is pleased.")
         state.prestige = min(100.0, state.prestige + 1.0)
-        
-        # Mark for potential renewal
         state.tyre_sponsor_goals_met = True
     else:
-        print(f"\n❌ GOALS NOT MET! {sponsor_name} is disappointed.")
-        print(f"   Failed requirements:")
-        for fail in failed_goals:
-            print(f"     • {fail}")
-        
-        # Prestige penalty
-        penalty = 2.0
-        state.prestige = max(0.0, state.prestige - penalty)
-        print(f"\n   Your reputation suffers. (Prestige -{penalty:.1f})")
-        state.news.append(f"TYRE SPONSOR: {sponsor_name} disappointed — goals missed! Prestige -{penalty:.1f}")
+        print(f"\n❌ GOALS NOT MET!")
+        for f in failed:
+            print(f"   • {f}")
+        state.prestige = max(0.0, state.prestige - 2.0)
         state.tyre_sponsor_goals_met = False
     
-    # Clear active status (contract ended)
     state.tyre_sponsor_active = False
 
 
 def show_tyre_sponsor_status(state):
-    """
-    Display current tyre sponsor status and progress.
-    """
+    """Display tyre sponsor status."""
     if not getattr(state, 'tyre_sponsor_active', False):
         print("\n  No active tyre sponsorship.")
         return
@@ -692,224 +1374,36 @@ def show_tyre_sponsor_status(state):
     sponsor_name = getattr(state, 'tyre_sponsor_name', 'Unknown')
     goals = getattr(state, 'tyre_sponsor_goals', {})
     
-    races_done = getattr(state, 'tyre_sponsor_races_completed', 0)
-    best_finish = getattr(state, 'tyre_sponsor_best_finish', 99)
-    podiums = getattr(state, 'tyre_sponsor_podiums', 0)
-    wins = getattr(state, 'tyre_sponsor_wins', 0)
-    
     print(f"\n  🛞 Tyre Sponsor: {sponsor_name}")
     print(f"     Tyres per race: {getattr(state, 'tyre_sponsor_tyres_per_race', 0)} sets")
-    print(f"\n     Goal Progress:")
+    print(f"\n     Goals:")
     
-    # Races completed
-    req_races = goals.get('races_to_complete', 0)
-    status = "✅" if races_done >= req_races else "❌"
-    print(f"       {status} Races: {races_done}/{req_races}")
+    races = getattr(state, 'tyre_sponsor_races_completed', 0)
+    req = goals.get('races_to_complete', 0)
+    status = "✅" if races >= req else f"{races}/{req}"
+    print(f"       Races: {status}")
     
-    # Best finish
     if 'min_finish_position' in goals:
-        req_pos = goals['min_finish_position']
-        status = "✅" if best_finish <= req_pos else "❌"
-        finish_str = f"P{best_finish}" if best_finish < 99 else "N/A"
-        print(f"       {status} Best finish: {finish_str} (need top {req_pos})")
+        best = getattr(state, 'tyre_sponsor_best_finish', 99)
+        req = goals['min_finish_position']
+        status = "✅" if best <= req else f"P{best} (need top {req})"
+        print(f"       Best finish: {status}")
     
-    # Podiums
     if 'podiums_required' in goals:
-        req_pods = goals['podiums_required']
-        status = "✅" if podiums >= req_pods else "❌"
-        print(f"       {status} Podiums: {podiums}/{req_pods}")
-    
-    # Wins
-    if 'wins_required' in goals:
-        req_wins = goals['wins_required']
-        status = "✅" if wins >= req_wins else "❌"
-        print(f"       {status} Wins: {wins}/{req_wins}")
+        pods = getattr(state, 'tyre_sponsor_podiums', 0)
+        req = goals['podiums_required']
+        status = "✅" if pods >= req else f"{pods}/{req}"
+        print(f"       Podiums: {status}")
 
+
+# =============================================================================
+# LEGACY FUNCTIONS (backwards compatibility)
+# =============================================================================
 
 def maybe_offer_sponsor_renewal(state, time):
     """
-    At the start of a new year, if the sponsor contract has expired,
-    offer renewal with better terms if goals were met.
+    At start of new year, check if any sponsor contracts expired.
+    Uses new multi-sponsor system but maintains old interface for main.py.
     """
-    if not state.sponsor_active:
-        return
-
-    # Only check when the contract year has passed
-    if time.year <= state.sponsor_end_year:
-        return
-
-    sponsor_name = state.sponsor_name
-    sponsor_info = SPONSOR_TYPES.get(sponsor_name, {})
-
-    # Goals met bonus
-    goals_met = state.sponsor_goals_races_started and state.sponsor_goals_podium
-    renewal_bonus = 1000 if goals_met else 0
-
-    # Base rate increase
-    rate_increase = 0.25 if goals_met else 0.0
-
-    # Sponsor-specific bonuses
-    sponsor_bonuses = {
-        "Gallant Leaf Tobacco": {"bonus_mult": 1.0, "media_event": "advert_shoot"},
-        "Valdieri Wines": {"bonus_mult": 1.2, "media_event": "wine_tasting"},
-        "Rossi Tires": {"bonus_mult": 1.1, "media_event": "tire_tech_demo"},
-        "Marconi Electronics": {"bonus_mult": 1.3, "media_event": "tech_demo"},
-        "Aero Dynamics Ltd": {"bonus_mult": 1.25, "media_event": "press_conference"},
-        "Castello Banking": {"bonus_mult": 1.4, "media_event": "press_conference"},
-    }
-
-    bonus_info = sponsor_bonuses.get(sponsor_name, {"bonus_mult": 1.0, "media_event": "press_conference"})
-    renewal_bonus = int(renewal_bonus * bonus_info["bonus_mult"])
-
-    print(f"\n{state.sponsor_name} contacts you about renewing the sponsorship deal.")
-    print(f"Your contract expired at the end of {state.sponsor_end_year}.")
-
-    if goals_met:
-        print("Goals completed: ✓ 3 races started, ✓ 1 podium achieved")
-        print(f"They offer improved terms: £{renewal_bonus} signing bonus + {rate_increase:.0f}% better payments.")
-    else:
-        print("Goals not fully completed. They offer standard renewal terms.")
-
-    choice = input("\nRenew the sponsorship? (y/n): ").strip().lower()
-
-    if choice == "y":
-        # Extend contract
-        state.sponsor_end_year = time.year + 2  # extend for 2 more years
-        state.sponsor_start_year = time.year
-
-        # Reset counters for new contract
-        state.sponsor_races_started = 0
-        state.sponsor_podiums = 0
-        state.sponsor_goals_races_started = False
-        state.sponsor_goals_podium = False
-
-        # Apply bonuses
-        if renewal_bonus > 0:
-            state.money += renewal_bonus
-            state.last_week_income += renewal_bonus
-            state.last_week_sponsor_income += renewal_bonus
-            state.constructor_earnings += renewal_bonus
-
-            mult = getattr(state, "sponsor_rate_multiplier", 1.0)
-            state.sponsor_rate_multiplier = min(2.0, mult + rate_increase)
-
-        team_name = state.player_constructor or "Your team"
-        state.news.append(f"{team_name} renews sponsorship with {state.sponsor_name} through {state.sponsor_end_year}.")
-        if renewal_bonus > 0:
-            state.news.append(f"Bonus for meeting goals: £{renewal_bonus} + improved payment rates.")
-
-        # Add media coverage for successful renewal
-        if goals_met:
-            generate_media_event(sponsor_name, bonus_info["media_event"], state, time)
-
-    else:
-        # End sponsorship
-        state.sponsor_active = False
-        state.news.append(f"{state.sponsor_name} sponsorship ends - no renewal agreed.")
-
-
-def maybe_offer_sponsor(state, time):
-    """
-    Offer the first sponsor once the team has:
-      - Ever completed Vallone GP
-      - Reached a minimum prestige
-    Only once per save.
-    """
-    # Already have or already refused this deal
-    if state.sponsor_seen_offer or state.sponsor_active:
-        return
-
-    # Only offer starting in year 1947
-    if time.year < 1947:
-        return
-
-    # Require that Vallone GP has been run at least once in the team's history
-    if not getattr(state, "ever_completed_vallone", False):
-        return
-
-    # Only offer if you've shown *some* promise
-    if state.prestige < 2.0:
-        return
-
-    # Select sponsor based on team prestige and random chance
-    available_sponsors = []
-
-    if state.prestige >= 2.0:
-        available_sponsors.append("Gallant Leaf Tobacco")
-
-    if state.prestige >= 3.0:
-        available_sponsors.extend(["Valdieri Wines", "Rossi Tires"])
-
-    if state.prestige >= 6.0:
-        available_sponsors.extend(["Marconi Electronics", "Aero Dynamics Ltd"])
-
-    if state.prestige >= 9.0:
-        available_sponsors.append("Castello Banking")
-
-    if not available_sponsors:
-        return
-
-    sponsor_name = random.choice(available_sponsors)
-    sponsor_info = SPONSOR_TYPES.get(sponsor_name, {})
-
-    print(f"\nA representative from {sponsor_name} approaches you.")
-    print(f"{sponsor_info.get('flavor_text', 'A company interested in motorsport sponsorship')}.")
-    print(f"They offer a sponsorship deal through 1949 with:")
-
-    # Base payments scaled by sponsor type
-    base_multipliers = {
-        "Gallant Leaf Tobacco": {"appearance": 60, "points": 10, "podium": 120, "bonus": 2000},
-        "Valdieri Wines": {"appearance": 80, "points": 15, "podium": 150, "bonus": 2500},
-        "Rossi Tires": {"appearance": 70, "points": 12, "podium": 130, "bonus": 2200},
-        "Marconi Electronics": {"appearance": 90, "points": 18, "podium": 180, "bonus": 3000},
-        "Aero Dynamics Ltd": {"appearance": 85, "points": 16, "podium": 160, "bonus": 2800},
-        "Castello Banking": {"appearance": 100, "points": 20, "podium": 200, "bonus": 3500},
-    }
-
-    # Validate sponsor_name exists - fail fast on typos
-    if sponsor_name not in base_multipliers:
-        valid_sponsors = list(base_multipliers.keys())
-        raise KeyError(
-            f"Unknown sponsor '{sponsor_name}'. "
-            f"Valid sponsors are: {valid_sponsors}. "
-            f"Check for typos in sponsor name."
-        )
-    
-    multipliers = base_multipliers[sponsor_name]
-
-    print(f"  • £{multipliers['bonus']} signing bonus immediately")
-    print(f"  • £{multipliers['appearance']} appearance payment per race started")
-    print(f"  • £{multipliers['points']} per championship point")
-    print(f"  • £{multipliers['podium']} per podium")
-    print("Goals:")
-    print("  • Start at least 3 races")
-    print("  • Achieve at least 1 podium by end of 1949")
-
-    choice = input("\nDo you accept the sponsorship? (y/n): ").strip().lower()
-
-    state.sponsor_seen_offer = True
-
-    if choice == "y":
-        state.sponsor_active = True
-        state.sponsor_name = sponsor_name
-        state.sponsor_start_year = time.year
-        state.sponsor_end_year = 1949
-        signing_bonus = multipliers['bonus']
-        state.money += signing_bonus
-        state.last_week_income += signing_bonus
-        state.last_week_sponsor_income += signing_bonus
-        state.news.append(f"{sponsor_name} signs with your team! £{signing_bonus} paid upfront.")
-
-        # Add media coverage for the signing
-        generate_media_event(sponsor_name, "press_conference", state, time)
-
-        state.constructor_earnings += signing_bonus
-    else:
-        # You turn them down – small respect boost
-        before = state.prestige
-        state.prestige = min(100.0, state.prestige + 0.5)
-        team_name = state.player_constructor or "Your team"
-        state.news.append(
-            f"{team_name} decline a sponsorship from {sponsor_name} "
-            f"(prestige {before:.1f} → {state.prestige:.1f})."
-        )
+    # Use the new system's review function
+    review_sponsor_contracts(state, time)

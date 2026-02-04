@@ -1002,6 +1002,28 @@ def run_game():
                             # Consume ONE slot run
                             ch["dev_runs_done"] += 1
                             slots_left = max(0, ch["dev_slots"] - ch["dev_runs_done"])
+                            
+                            # ---- Record the upgrade for future chassis purchases ----
+                            # This lets players apply learned upgrades to new chassis of the same model
+                            if not hasattr(state, 'chassis_developed_upgrades'):
+                                state.chassis_developed_upgrades = {}
+                            
+                            chassis_id = ch["id"]
+                            if chassis_id not in state.chassis_developed_upgrades:
+                                state.chassis_developed_upgrades[chassis_id] = {"aero": 0, "suspension": 0, "weight": 0}
+                            
+                            # Track the delta (only positive gains, not disasters)
+                            if roll >= bad_chance:  # Not a disaster
+                                if state.chassis_project_stat_target == "aero":
+                                    delta_gained = 1 if roll < bad_chance + small_chance else (2 if quality <= 1.1 or random.random() >= 0.25 else 3)
+                                    state.chassis_developed_upgrades[chassis_id]["aero"] += delta_gained
+                                elif state.chassis_project_stat_target == "suspension":
+                                    delta_gained = 1 if roll < bad_chance + small_chance else (2 if quality <= 1.1 or random.random() >= 0.20 else 3)
+                                    state.chassis_developed_upgrades[chassis_id]["suspension"] += delta_gained
+                                elif state.chassis_project_stat_target == "weight":
+                                    # Weight reduction is stored as negative (since lower is better)
+                                    delta_gained = 1 if roll < bad_chance + small_chance else (1 if quality <= 1.1 or random.random() >= 0.25 else 2)
+                                    state.chassis_developed_upgrades[chassis_id]["weight"] -= delta_gained
 
                             team_name = state.player_constructor or "Your team"
                             if slots_left > 0:

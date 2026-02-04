@@ -590,12 +590,27 @@ def maybe_spawn_scuderia_valdieri(state, time, season_week, race_calendar):
         state.valdieri_active = False
         return
 
+    # Get allowed nationalities from constructor definition
+    team_data = constructors.get(team, {})
+    allowed_nats = team_data.get("allowed_nationalities", None)
+
     # Build candidate pool (Independent drivers only)
     candidates = []
     for d in drivers:
         if d.get("constructor") != "Independent":
             continue
         if state.player_driver is d:
+            continue
+        
+        # Check nationality restrictions
+        if allowed_nats:
+            driver_nat = d.get("country", "")
+            if driver_nat not in allowed_nats:
+                continue
+        
+        # Check if driver is available yet (e.g., German drivers from 1950)
+        appears_from = d.get("appears_from_year", 1947)
+        if time.year < appears_from:
             continue
 
         age = d.get("age", 40)
@@ -638,14 +653,15 @@ def maybe_spawn_silberkern_stahl(state, time, season_week, race_calendar):
     - They only sign German (or Swiss) drivers.
     Fires once per save.
     """
-    if time.year != 1952:
+    if time.year < 1952:
         return
 
     if getattr(state, "silberkern_spawned", False):
         return
 
-    # Trigger in week 1 of 1952
-    if season_week != 1:
+    # Trigger early in 1952 season (before first race typically at week 9)
+    # This gives some flexibility if week 1 is somehow skipped
+    if season_week > 8:
         return
 
     team = "Silberkern-Stahl"
@@ -672,6 +688,11 @@ def maybe_spawn_silberkern_stahl(state, time, season_week, race_calendar):
         # Must be German or Swiss
         nat = d.get("country", "")
         if nat not in allowed_nats:
+            continue
+        
+        # Check if driver is available yet
+        appears_from = d.get("appears_from_year", 1947)
+        if time.year < appears_from:
             continue
 
         age = d.get("age", 40)
