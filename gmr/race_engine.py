@@ -1945,23 +1945,6 @@ def simulate_race_positions(event_grid, quali_results, stage_incidents, stage_mo
     return finishers, dnf_drivers, retire_reasons, stage_overtakes
 
 
-def consume_tyre_set(state, race_name, reason):
-    """
-    Consume one tyre set if available. Returns True if consumed.
-    """
-    if getattr(state, "tyre_sets", 0) <= 0:
-        state.news.append(
-            f"TYRES ({race_name}): No spare sets available — {reason} postponed."
-        )
-        return False
-
-    state.tyre_sets -= 1
-    state.news.append(
-        f"TYRES ({race_name}): Used 1 set ({reason}). Remaining: {state.tyre_sets}."
-    )
-    return True
-
-
 def run_player_race_stages(state, race_name, is_wet, is_hot, track_profile, stage_incidents=None, stage_overtakes=None, defer_output=False):
     """
     Run a simple 3-part race flow with player decisions and events.
@@ -2030,12 +2013,9 @@ def run_player_race_stages(state, race_name, is_wet, is_hot, track_profile, stag
 
             if event.get("forced_tyre_change"):
                 stage_events.append("The driver dives into the pits for a tyre change.")
-                if consume_tyre_set(state, race_name, "emergency tyre change"):
-                    perf_mult *= 0.96
-                    crash_mult *= 0.95
-                else:
-                    perf_mult *= 0.95
-                    crash_mult *= 1.15
+                perf_mult *= 0.96
+                crash_mult *= 0.95
+                stage_news.append(f"PIT STOP ({race_name}): Emergency tyre change.")
 
             if event.get("pit_issue"):
                 stage_events.append("The driver brings the car in to report the issue (no radio in this era).")
@@ -2043,17 +2023,11 @@ def run_player_race_stages(state, race_name, is_wet, is_hot, track_profile, stag
                     "You can attempt a quick fix/tyre change, or send them straight back out.",
                     "Attempt a quick fix? (y/n): "
                 ):
-                    if consume_tyre_set(state, race_name, "repair stop"):
-                        perf_mult *= 0.97
-                        engine_mult *= 0.90
-                        crash_mult *= 0.90
-                        perf_mult *= 1.01
-                        stage_news.append(f"PIT STOP ({race_name}): Team makes a quick repair stop.")
-                    else:
-                        perf_mult *= 0.985
-                        engine_mult *= event.get("no_pit_engine_mult", 1.0)
-                        crash_mult *= event.get("no_pit_crash_mult", 1.0)
-                        stage_news.append(f"PIT STOP ({race_name}): No tyres available; driver waved back out.")
+                    perf_mult *= 0.97
+                    engine_mult *= 0.90
+                    crash_mult *= 0.90
+                    perf_mult *= 1.01
+                    stage_news.append(f"PIT STOP ({race_name}): Team makes a quick repair stop.")
                 else:
                     perf_mult *= 0.985
                     perf_mult *= event.get("no_pit_performance_mult", 1.0)
@@ -2066,17 +2040,11 @@ def run_player_race_stages(state, race_name, is_wet, is_hot, track_profile, stag
                 "Long race. You can hang a pit board and call them in for fuel/tyres.",
                 "Signal for a stop? (y/n): "
             ):
-                if consume_tyre_set(state, race_name, "fuel/tyre stop"):
-                    perf_mult *= 0.97
-                    perf_mult *= 1.01
-                    engine_mult *= 0.92
-                    crash_mult *= 0.92
-                    stage_news.append(f"PIT STOP ({race_name}): Fuel/tyre stop taken in a long race.")
-                else:
-                    perf_mult *= 0.98
-                    engine_mult *= 1.05
-                    crash_mult *= 1.05
-                    stage_news.append(f"PIT STOP ({race_name}): No tyres available; stop cancelled.")
+                perf_mult *= 0.97
+                perf_mult *= 1.01
+                engine_mult *= 0.92
+                crash_mult *= 0.92
+                stage_news.append(f"PIT STOP ({race_name}): Fuel/tyre stop taken in a long race.")
 
         decision = maybe_stage_decision(stage_label, is_wet, is_hot)
         if decision:
@@ -3104,7 +3072,11 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile, exclude
         before_n = len(finishers)
         finishers = [(drv, perf) for (drv, perf) in finishers if drv.get("name") != vname]
 
-        # Ensure we log it as a retirement
+        # Remove any existing retirement entry (they may have been added earlier with "engine")
+        # The demo finale death is always a crash, not engine failure
+        retired = [(drv, reason) for (drv, reason) in retired if drv.get("name") != vname]
+        
+        # Log it as a crash retirement (fatal crash)
         retired.append((victim, "crash"))
 
         if len(finishers) != before_n:
@@ -3634,8 +3606,6 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
     # NEW INTERACTIVE RACE SIMULATION
     # ==========================================================================
     if player_in_grid:
-        consume_tyre_set(state, race_name, "race start")
-        
         # Create the race simulator with accurate position tracking
         simulator = RaceSimulator(
             event_grid=event_grid,
@@ -3763,12 +3733,15 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         # Remove from classified finishers
         finishers = [(drv, perf) for (drv, perf) in finishers if drv.get("name") != vname]
 
-        # Treat as crash retirement for prestige logic
+        # Remove from dnf_drivers if already there (to avoid duplicate with wrong reason)
+        dnf_drivers = [d for d in dnf_drivers if d.get("name") != vname]
+        
+        # Add as crash retirement (fatal crash, not engine failure)
+        dnf_drivers.append(victim)
         retire_reasons[vname] = "crash"
 
         # If victim is player's driver, they are a DNF and the contract ends brutally
         if state.player_driver and state.player_driver.get("name") == vname:
-            dnf_drivers.append(state.player_driver)
             state.demo_player_died = True  # just a flag for after-results cleanup
 
         # Remove from global driver list for future seasons
