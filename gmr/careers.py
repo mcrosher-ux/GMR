@@ -504,12 +504,19 @@ def maybe_refill_ai_teams(state, time, allow_poaching=False):
         allowed_nats = team_data.get("allowed_nationalities", None)  # e.g., Silberkern = German only
         candidates = []
         
+        current_year = time.year if time else 1947
+        
         for d in drivers:
             # Check nationality restrictions (e.g., Silberkern only signs Germans)
             if allowed_nats:
                 driver_nat = d.get("country", "")
                 if driver_nat not in allowed_nats:
                     continue
+            
+            # Check if driver is available yet (e.g., German drivers from 1950)
+            appears_from = d.get("appears_from_year", 1947)
+            if current_year < appears_from:
+                continue
             
             # Usually only sign independents
             if d.get("constructor") != "Independent":

@@ -178,6 +178,9 @@ def show_chassis_shop(state):
 
     print("\nAvailable Chassis:")
     available_chassis = [c for c in chassis_list if c.get("for_sale", True)]
+    
+    # Get developed upgrades dict for display
+    developed_upgrades = getattr(state, 'chassis_developed_upgrades', {})
 
     for idx, ch in enumerate(available_chassis, start=1):
 
@@ -188,6 +191,19 @@ def show_chassis_shop(state):
         print(f"     Aero ............... {ch['aero']}")
         print(f"     Suspension ......... {ch.get('suspension', 5)}")
         print(f"     Price: £{ch['price']}")
+        
+        # Show if we have developed upgrades for this chassis
+        dev = developed_upgrades.get(ch["id"], {})
+        if any(v != 0 for v in dev.values()):
+            parts = []
+            if dev.get("aero", 0) > 0:
+                parts.append(f"+{dev['aero']} aero")
+            if dev.get("suspension", 0) > 0:
+                parts.append(f"+{dev['suspension']} susp")
+            if dev.get("weight", 0) < 0:
+                parts.append(f"{dev['weight']} wt")
+            print(f"     ★ UPGRADES AVAILABLE: {', '.join(parts)}")
+        
         print(f"     About: {ch['description']}")
 
 
@@ -231,6 +247,59 @@ def show_chassis_shop(state):
     state.last_week_outgoings += price
 
     state.current_chassis = dict(selected_chassis)
+    
+    # ---- Check for developed upgrades that can be applied ----
+    chassis_id = selected_chassis["id"]
+    developed = getattr(state, 'chassis_developed_upgrades', {}).get(chassis_id, {})
+    
+    has_upgrades = any(v != 0 for v in developed.values())
+    if has_upgrades:
+        print("\n═══════════════════════════════════════════════════════════")
+        print("  Your mechanics have developed upgrades for this chassis model!")
+        print("═══════════════════════════════════════════════════════════")
+        
+        upgrade_parts = []
+        if developed.get("aero", 0) > 0:
+            upgrade_parts.append(f"+{developed['aero']} aero")
+        if developed.get("suspension", 0) > 0:
+            upgrade_parts.append(f"+{developed['suspension']} suspension")
+        if developed.get("weight", 0) < 0:
+            upgrade_parts.append(f"{developed['weight']} weight")
+        
+        print(f"  Available upgrades: {', '.join(upgrade_parts)}")
+        
+        # Calculate upgrade cost based on mechanic skill and garage upgrades
+        mech_skill = state.garage.get_effective_mechanic_skill(state)
+        # Base cost £200, reduced by mechanic skill (max discount ~£50 at skill 10)
+        upgrade_cost = max(100, int(200 - (mech_skill * 5)))
+        
+        print(f"  Installation cost: £{upgrade_cost}")
+        print(f"  (Your head mechanic's skill reduces this cost)")
+        
+        if upgrade_cost <= state.money:
+            apply_choice = input("\nApply your developed upgrades to this new chassis? (y/n): ").strip().lower()
+            if apply_choice == "y":
+                state.money -= upgrade_cost
+                state.last_week_purchases += upgrade_cost
+                state.last_week_outgoings += upgrade_cost
+                
+                # Apply the upgrades
+                if developed.get("aero", 0) > 0:
+                    state.current_chassis["aero"] = state.current_chassis.get("aero", 1) + developed["aero"]
+                if developed.get("suspension", 0) > 0:
+                    state.current_chassis["suspension"] = state.current_chassis.get("suspension", 5) + developed["suspension"]
+                if developed.get("weight", 0) < 0:
+                    state.current_chassis["weight"] = state.current_chassis.get("weight", 7) + developed["weight"]
+                
+                print(f"\nUpgrades applied! Your mechanics fitted the developed parts.")
+                print(f"  Final chassis stats:")
+                print(f"    Weight: {state.current_chassis['weight']}")
+                print(f"    Aero: {state.current_chassis['aero']}")
+                print(f"    Suspension: {state.current_chassis.get('suspension', 5)}")
+            else:
+                print("\nNo upgrades applied. You can develop this chassis further later.")
+        else:
+            print(f"\n  (You cannot afford the £{upgrade_cost} installation fee)")
 
     # Set the ceiling and current condition for this design
     if selected_chassis["id"] == "dad_chassis":

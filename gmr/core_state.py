@@ -664,7 +664,34 @@ class GameState:
 
         # For repeating calendar & demo cutoff
         self.completed_races = set()
-        # Sponsorship fields
+        
+        # =================================================================
+        # SPONSORSHIP SYSTEM (Expanded - supports multiple sponsors)
+        # =================================================================
+        # List of active sponsor contracts
+        # Each sponsor: {
+        #   "name": str,
+        #   "tier": "title"/"technical"/"associate",
+        #   "start_year": int,
+        #   "end_year": int,
+        #   "races_started": int,
+        #   "podiums": int,
+        #   "wins": int,
+        #   "fastest_laps": int,
+        #   "best_finish": int or None,
+        #   "no_engine_failures": int,  # consecutive clean races
+        #   "happiness": int,  # 0-100, affects renewal
+        #   "rate_multiplier": float,
+        #   "goals_completed": dict,  # which goals have been met
+        #   "bonus_events_done": set,  # which bonus events have triggered
+        # }
+        self.sponsors = []  # List of active sponsor dicts
+        
+        # Track which sponsors have made offers (to avoid repeat spam)
+        self.sponsors_offered_this_year = set()
+        self.sponsor_last_offer_week = 0
+        
+        # Legacy fields for backwards compatibility
         self.sponsor_active = False
         self.sponsor_name = None
         self.sponsor_start_year = None
@@ -673,12 +700,10 @@ class GameState:
         self.sponsor_podiums = 0
         self.sponsor_points = 0
         self.sponsor_seen_offer = False
-        # Sponsor tuning
-        self.sponsor_rate_multiplier = 1.0   # lets us sweeten the deal later
-        self.sponsor_bonus_event_done = False  # have we had the prestige 5 advert chat yet?
-        # Goal tracking for sponsor contracts
-        self.sponsor_goals_races_started = False  # completed 3 races started
-        self.sponsor_goals_podium = False  # completed 1 podium
+        self.sponsor_rate_multiplier = 1.0
+        self.sponsor_bonus_event_done = False
+        self.sponsor_goals_races_started = False
+        self.sponsor_goals_podium = False
 
       
         self.demo_complete = False
@@ -693,6 +718,12 @@ class GameState:
         self.chassis_project_active = False
         self.chassis_progress = 0.0
         self.chassis_project_chassis_id = None  # which chassis this project is for
+        self.chassis_project_stat_target = None  # what stat we're developing
+        self.chassis_project_dev_bonus = 0.0     # dev bonus from team
+        
+        # Track developed upgrades per chassis model (persists between purchases)
+        # chassis_id -> {"aero": +delta, "suspension": +delta, "weight": -delta}
+        self.chassis_developed_upgrades = {}
 
         # NEW: long-term car condition
         self.engine_health = 100.0  # 0–100, how “fresh” the engine is
@@ -860,6 +891,43 @@ def ensure_state_fields(state) -> None:
 
     if not hasattr(state, "gallant_driver_promo_done"):
         state.gallant_driver_promo_done = False
+
+    # =================================================================
+    # NEW MULTI-SPONSOR SYSTEM MIGRATION
+    # =================================================================
+    if not hasattr(state, "sponsors"):
+        state.sponsors = []
+        # Migrate old single sponsor to new system
+        if getattr(state, "sponsor_active", False) and getattr(state, "sponsor_name", None):
+            old_sponsor = {
+                "name": state.sponsor_name,
+                "tier": "title",  # Legacy sponsors were all title
+                "start_year": getattr(state, "sponsor_start_year", 1947),
+                "end_year": getattr(state, "sponsor_end_year", 1949),
+                "races_started": getattr(state, "sponsor_races_started", 0),
+                "podiums": getattr(state, "sponsor_podiums", 0),
+                "wins": 0,
+                "fastest_laps": 0,
+                "best_finish": None,
+                "no_engine_failures": 0,
+                "happiness": 50,
+                "rate_multiplier": getattr(state, "sponsor_rate_multiplier", 1.0),
+                "goals_completed": {
+                    "races_started": getattr(state, "sponsor_goals_races_started", False),
+                    "podium": getattr(state, "sponsor_goals_podium", False),
+                },
+                "bonus_events_done": set(),
+            }
+            if getattr(state, "sponsor_bonus_event_done", False):
+                old_sponsor["bonus_events_done"].add("advert_shoot")
+            if getattr(state, "gallant_driver_promo_done", False):
+                old_sponsor["bonus_events_done"].add("driver_promo")
+            state.sponsors.append(old_sponsor)
+    
+    if not hasattr(state, "sponsors_offered_this_year"):
+        state.sponsors_offered_this_year = set()
+    if not hasattr(state, "sponsor_last_offer_week"):
+        state.sponsor_last_offer_week = 0
 
     # Tyre sponsor fields
     if not hasattr(state, "tyre_sponsor_active"):

@@ -146,6 +146,12 @@ class RaceSimulator:
         self.stage_history = []  # List of stage results
         
         # =================================================================
+        # FASTEST LAP TRACKING - track best single-stage performance
+        # =================================================================
+        self.fastest_lap_driver = None  # Driver dict who set fastest lap
+        self.fastest_lap_time = 0.0  # Best stage performance value (higher = faster)
+        
+        # =================================================================
         # TYRE WEAR TRACKING - for ALL drivers (player and AI)
         # =================================================================
         self.tyre_wear = {}  # driver_name -> wear percentage (0-100+)
@@ -863,6 +869,13 @@ class RaceSimulator:
             tyre_pace_mult = get_tyre_pace_penalty(driver_wear)
             stage_perf *= tyre_pace_mult
             
+            # =================================================================
+            # FASTEST LAP TRACKING - check if this is the best single-stage lap
+            # =================================================================
+            if stage_perf > self.fastest_lap_time:
+                self.fastest_lap_time = stage_perf
+                self.fastest_lap_driver = d
+            
             # Update cumulative performance
             self.driver_performance[name] = self.driver_performance.get(name, 0) + stage_perf
             stage_performances.append((d, self.driver_performance[name]))
@@ -955,6 +968,13 @@ class RaceSimulator:
             score = self.driver_performance.get(d.get("name"), 0)
             finishers.append((d, score))
         return finishers, self.dnf_drivers, self.retire_reasons
+    
+    def get_fastest_lap(self):
+        """Return the driver who set the fastest lap, or None if no valid lap."""
+        # Only return fastest lap if the driver actually finished the race
+        if self.fastest_lap_driver and self.fastest_lap_driver not in self.dnf_drivers:
+            return self.fastest_lap_driver
+        return None
 
 
 def format_overtake_text(overtaker, overtaken, new_pos):
@@ -2499,14 +2519,16 @@ def roll_race_weather(track_profile):
     return is_wet, is_hot
 
 
-def record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired):
+def record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired, fastest_lap_driver=None):
     """
     Save one race to state.race_history and update state.driver_career totals.
 
     finishers: list of (driver_dict, performance)
     retired: list of (driver_dict, reason) where reason is "engine" or "crash" (or "unknown")
+    fastest_lap_driver: driver dict who set fastest lap (optional, for bonus point from 1952)
     """
     from gmr.core_state import DriverCareerHistory
+    from gmr.constants import FASTEST_LAP_POINT_YEAR
 
     # Safety for old saves
     if not hasattr(state, "race_history") or state.race_history is None:
@@ -2524,16 +2546,29 @@ def record_race_result(state, time, season_week, race_name, is_wet, is_hot, fini
         "hot": bool(is_hot),
         "finishers": [],
         "dnfs": [],
+        "fastest_lap": None,  # Will be set below if applicable
     }
 
-    # ---- finishers ----
     # Check if this race counts for World Championship points
     is_champ_race = is_championship_year(time.year) and is_championship_race(race_name, time.year)
-    
+
+    # ---- Fastest lap bonus point (from 1952 onwards) ----
+    fastest_lap_name = None
+    fastest_lap_bonus = 0
+    if fastest_lap_driver and is_champ_race and time.year >= FASTEST_LAP_POINT_YEAR:
+        fastest_lap_name = fastest_lap_driver.get("name")
+        fastest_lap_bonus = 1  # 1 bonus point for fastest lap
+        entry["fastest_lap"] = fastest_lap_name
+
+    # ---- finishers ----
     for pos, (d, _perf) in enumerate(finishers, start=1):
         pts = 0
         if is_champ_race and (pos - 1) < len(POINTS_TABLE):
             pts = POINTS_TABLE[pos - 1]
+        
+        # Add fastest lap bonus point
+        if d.get("name") == fastest_lap_name:
+            pts += fastest_lap_bonus
 
         prize = get_prize_for_race_and_pos(race_name, pos - 1)
 
@@ -2760,7 +2795,7 @@ def add_crash_explanation(state, d, track_profile, is_hot, is_wet, perspective="
         )
 
 
-def print_full_classification(race_name, finishers, retired, is_wet, is_hot, year=1950, show_prompt=True):
+def print_full_classification(race_name, finishers, retired, is_wet, is_hot, year=1950, show_prompt=True, fastest_lap_driver=None):
     """
     Print the full race classification to console.
     Used for AI-only races and races where the player DNF'd.
@@ -2768,7 +2803,10 @@ def print_full_classification(race_name, finishers, retired, is_wet, is_hot, yea
     finishers: list of (driver_dict, performance)
     retired: list of (driver_dict, reason)
     year: the current year (for championship point calculation)
+    fastest_lap_driver: driver who set fastest lap (for bonus point from 1952)
     """
+    from gmr.constants import FASTEST_LAP_POINT_YEAR
+    
     # Check if this race counts for World Championship
     is_champ_race = is_championship_year(year) and is_championship_race(race_name, year)
     
@@ -2833,6 +2871,12 @@ def print_full_classification(race_name, finishers, retired, is_wet, is_hot, yea
                 reason_text = "Retired"
             
             print(f"  DNF {name:<20} ({constructor:<15}) - {reason_text}")
+    
+    # Display fastest lap (from 1952 onwards in championship races)
+    if fastest_lap_driver and is_champ_race and year >= FASTEST_LAP_POINT_YEAR:
+        fl_name = fastest_lap_driver.get("name", "Unknown")
+        fl_constructor = fastest_lap_driver.get("constructor", "")
+        print(f"\n  ⏱️  FASTEST LAP: {fl_name} ({fl_constructor}) — +1 bonus point")
     
     print(f"\n{'='*60}")
     
@@ -3062,6 +3106,22 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile, exclude
     finishers.sort(key=lambda x: x[1], reverse=True)
 
     # ------------------------------
+    # FASTEST LAP - pick from top performers (weighted by pace + aggression)
+    # ------------------------------
+    fastest_lap_driver = None
+    if finishers:
+        # Weight by pace and aggression - aggressive drivers push for fastest lap
+        candidates = []
+        for d, perf in finishers[:min(6, len(finishers))]:  # Top 6 candidates
+            pace = d.get("pace", 5)
+            aggression = d.get("aggression", 5)
+            # Higher pace and aggression = more likely to set fastest lap
+            weight = pace * 1.5 + aggression * 1.0 + random.uniform(0, 3)
+            candidates.append((d, weight))
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        fastest_lap_driver = candidates[0][0]
+
+    # ------------------------------
     # DEMO FINALE (AI-only): force fatal DNF so they cannot be classified
     # ------------------------------
     victim = maybe_trigger_demo_finale(state, time, race_name)
@@ -3109,6 +3169,7 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile, exclude
     # Check if this race counts for World Championship
     is_champ_race = is_championship_year(time.year) and is_championship_race(race_name, time.year)
     if is_champ_race:
+        from gmr.constants import FASTEST_LAP_POINT_YEAR
         for pos, (d, _) in enumerate(finishers):
             if pos < len(POINTS_TABLE):
                 driver_name = d["name"]
@@ -3116,6 +3177,13 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile, exclude
                 if driver_name not in state.points:
                     state.points[driver_name] = 0
                 state.points[driver_name] += POINTS_TABLE[pos]
+        
+        # Award fastest lap bonus point (from 1952 onwards)
+        if fastest_lap_driver and time.year >= FASTEST_LAP_POINT_YEAR:
+            fl_name = fastest_lap_driver.get("name")
+            if fl_name not in state.points:
+                state.points[fl_name] = 0
+            state.points[fl_name] += 1
 
     # Headline with enhanced media flavor
     winner = finishers[0][0]
@@ -3160,9 +3228,10 @@ def run_ai_only_race(state, race_name, time, season_week, track_profile, exclude
         state.news.append(random.choice(weather_descriptions))
 
     # Show full classification to player
-    print_full_classification(race_name, finishers, retired, is_wet, is_hot, year=time.year, show_prompt=True)
+    print_full_classification(race_name, finishers, retired, is_wet, is_hot, year=time.year, show_prompt=True, 
+                             fastest_lap_driver=fastest_lap_driver)
 
-    record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired)
+    record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired, fastest_lap_driver)
     
     # Return the set of drivers who participated (for clash exclusion)
     return drivers_in_race
@@ -3640,6 +3709,9 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         # Get final results from simulator
         finishers, dnf_drivers, retire_reasons = simulator.get_final_results()
         
+        # Get fastest lap driver (for bonus point from 1952)
+        fastest_lap_driver = simulator.get_fastest_lap()
+        
         # Show final results
         print(f"\n{'='*60}")
         print(f"  RACE COMPLETE — FINAL CLASSIFICATION")
@@ -3693,6 +3765,13 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
                 else:
                     print(f"    DNF. {name:<18} ({constructor:<12}) — {reason_label}")
         
+        # Display fastest lap (from 1952 onwards in championship races)
+        from gmr.constants import FASTEST_LAP_POINT_YEAR
+        if fastest_lap_driver and is_champ_race and time.year >= FASTEST_LAP_POINT_YEAR:
+            fl_name = fastest_lap_driver.get("name")
+            fl_constructor = fastest_lap_driver.get("constructor", "")
+            print(f"\n⏱️  FASTEST LAP: {fl_name} ({fl_constructor}) — +1 bonus point")
+        
         input("\n  Press Enter to continue...")
         
     else:
@@ -3714,6 +3793,10 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
             simulator.simulate_stage(stage_idx, player_strategy_mult=1.0)
         
         finishers, dnf_drivers, retire_reasons = simulator.get_final_results()
+        
+        # Get fastest lap driver (for bonus point from 1952)
+        fastest_lap_driver = simulator.get_fastest_lap()
+        
         stage_mods = {
             "performance_mult": 1.0,
             "engine_fail_mult": 1.0,
@@ -3816,6 +3899,7 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
     # Award points ONLY if this is a championship race
     is_champ_race = is_championship_year(time.year) and is_championship_race(race_name, time.year)
     if is_champ_race:
+        from gmr.constants import FASTEST_LAP_POINT_YEAR
         for pos, (drv, _) in enumerate(finishers):
             if pos < len(POINTS_TABLE):
                 driver_name = drv["name"]
@@ -3823,6 +3907,13 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
                 if driver_name not in state.points:
                     state.points[driver_name] = 0
                 state.points[driver_name] += POINTS_TABLE[pos]
+        
+        # Award fastest lap bonus point (from 1952 onwards)
+        if fastest_lap_driver and time.year >= FASTEST_LAP_POINT_YEAR:
+            fl_name = fastest_lap_driver.get("name")
+            if fl_name not in state.points:
+                state.points[fl_name] = 0
+            state.points[fl_name] += 1
 
     # Pay prize money ONLY to the player's team (your cut of organiser prize)
     if state.player_driver and player_finish_pos is not None:
@@ -4200,7 +4291,7 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
 
     tick_driver_contract_after_race_end(state, time, started_race)
 
-    record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired)
+    record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired, fastest_lap_driver)
 
     # ✅ CRITICAL: stop the race repeating
     state.completed_races.add(season_week)

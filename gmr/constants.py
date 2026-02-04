@@ -23,6 +23,7 @@ ENZONI_PRESTIGE_REQUIREMENT = 5.0  # minimum team prestige to unlock Enzoni cust
 CHAMPIONSHIP_ACTIVE = False  # Legacy - use is_championship_year() instead
 CHAMPIONSHIP_START_YEAR = 1951
 CONSTRUCTORS_CHAMPIONSHIP_START_YEAR = 1958  # Constructors come later
+FASTEST_LAP_POINT_YEAR = 1952  # Bonus point for fastest lap from this year onwards
 
 # Developer mode - bypass demo ending to test long-term features
 DEV_BYPASS_DEMO = True
