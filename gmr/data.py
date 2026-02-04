@@ -384,7 +384,7 @@ constructors = {
         "chassis_id": "enzoni_works_monocoque",
         "dev_bonus": 0.25,          # already using this idea
         "dev_attempt_chance": 0.85, # how often they try per offseason
-        "prestige": 15.0,           # team prestige - affects driver loyalty and poaching
+        "prestige": 90.0,           # team prestige (0-100) - the dominant force
         "max_drivers": 2,           # how many cars/drivers the team can field
         "replenishes": True,        # AI team will sign replacements if below max_drivers
     },
@@ -394,7 +394,7 @@ constructors = {
         "chassis_id": "valdieri_works_spaceframe",
         "dev_bonus": 0.20,
         "dev_attempt_chance": 0.80,
-        "prestige": 12.0,           # strong team but below Enzoni
+        "prestige": 70.0,           # team prestige (0-100) - strong but below Enzoni
         "max_drivers": 2,           # standard two-car team
         "replenishes": True,        # AI team will sign replacements
     },
@@ -404,7 +404,7 @@ constructors = {
         "chassis_id": "silberkern_works_spaceframe",
         "dev_bonus": 0.22,
         "dev_attempt_chance": 0.90,  # German engineering precision
-        "prestige": 13.0,            # prestigious German works team
+        "prestige": 75.0,            # team prestige (0-100) - prestigious German works team
         "max_drivers": 2,
         "replenishes": True,
         "allowed_nationalities": ["Germany", "Switzerland"],  # Germanic drivers only

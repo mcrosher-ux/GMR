@@ -36,7 +36,6 @@ from gmr.ui_garage import (
     show_garage,
     show_engine_shop,
     show_chassis_shop,
-    show_tyre_shop,
     manage_chassis_development,
     handle_repairs,
     handle_test_day,
@@ -582,8 +581,6 @@ def run_game():
                 warnings.append("NO DRIVER HIRED")
             elif getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 0:
                 warnings.append("DRIVER INJURED")
-            if getattr(state, 'tyre_sets', 0) <= 0:
-                warnings.append("NO TYRES AVAILABLE")
             
             if warnings:
                 race_name_warn = race_calendar[season_week]
@@ -607,8 +604,6 @@ def run_game():
                 next_warnings.append("No driver")
             elif getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 1:
                 next_warnings.append("Driver still injured")
-            if getattr(state, 'tyre_sets', 0) <= 1:
-                next_warnings.append("Low on tyres")
             
             if next_warnings:
                 next_race = race_calendar[next_week]
@@ -709,8 +704,7 @@ def run_game():
                         print("\n=== Racecar Parts ===")
                         print("1. Engines")
                         print("2. Chassis")
-                        print("3. Tyres")
-                        print("4. Back to Garage Menu")
+                        print("3. Back to Garage Menu")
 
                         parts_choice = input("> ").strip()
 
@@ -719,8 +713,6 @@ def run_game():
                         elif parts_choice == "2":
                             show_chassis_shop(state)
                         elif parts_choice == "3":
-                            show_tyre_shop(state)
-                        elif parts_choice == "4":
                             break
                         else:
                             print("Invalid choice.")
@@ -745,7 +737,7 @@ def run_game():
                 print("\n🔒 The garage is closed for winter.")
                 print("   You cannot hire or release drivers while hibernating.")
                 continue
-            show_driver_market(state)
+            show_driver_market(state, time)
 
         elif choice == "6":
             # Career & Personal menu

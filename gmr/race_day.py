@@ -290,7 +290,6 @@ def show_race_preview(state, time, race_name, track_profile):
     # --- FINANCIAL CONTEXT ---
     print("\n[ YOUR FINANCES ]")
     print(f"  Current funds:          £{state.money}")
-    print(f"  Tyre sets available:    {getattr(state, 'tyre_sets', 0)}")
     
     # Warning if low on cash
     if state.money < total_cost:
@@ -558,13 +557,11 @@ def handle_race_week(state, time):
         or state.current_chassis is None
         or not state.player_driver
     )
-
-    no_tyres = getattr(state, "tyre_sets", 0) <= 0
     
     # Check if driver is injured
     driver_injured = getattr(state, 'player_driver_injured', False) and getattr(state, 'player_driver_injury_weeks_remaining', 0) > 0
 
-    if no_car or driver_injured or no_tyres:
+    if no_car or driver_injured:
         # You physically can't run the event: auto-skip, AI-only race
         print(f"\n{race_name} takes place, but your team cannot compete this week.")
         if state.current_engine is None:
@@ -576,8 +573,6 @@ def handle_race_week(state, time):
         if driver_injured:
             weeks_remaining = getattr(state, 'player_driver_injury_weeks_remaining', 0)
             print(f"  • Driver injured ({weeks_remaining} week{'s' if weeks_remaining != 1 else ''} remaining).")
-        if no_tyres:
-            print("  • No tyre sets available.")
 
         print("You watch from the paddock as other teams take part.")
         input("\nPress Enter to continue...")
@@ -620,17 +615,6 @@ def handle_race_week(state, time):
                 print(f"\nYour driver {state.player_driver['name']} is still injured and cannot race.")
                 print(f"They will be unable to drive for another {weeks_remaining} week{'s' if weeks_remaining != 1 else ''}.")
                 print("You cannot enter this race.")
-                input("\nPress Enter to continue...")
-                drivers_in_main_race = run_ai_only_race(state, race_name, time, season_week, track_profile)
-                if skipped_race:
-                    skipped_track = tracks.get(skipped_race, {})
-                    run_ai_only_race(state, skipped_race, time, season_week, skipped_track,
-                                   excluded_drivers=drivers_in_main_race or set())
-                state.completed_races.add(season_week)  # Mark as done to prevent loop
-                return
-
-            if getattr(state, "tyre_sets", 0) <= 0:
-                print("\nYou have no tyre sets available and cannot start the race.")
                 input("\nPress Enter to continue...")
                 drivers_in_main_race = run_ai_only_race(state, race_name, time, season_week, track_profile)
                 if skipped_race:
@@ -763,11 +747,7 @@ def handle_race_week(state, time):
     # From here on: full race weekend
     # ------------------------------
 
-    # Ensure player has tyres for the race (no longer a purchased resource)
-    if getattr(state, 'tyre_sets', 0) < 5:
-        state.tyre_sets = 5
-
-    # Deliver tyre sponsor tyres before the race
+    # Deliver tyre sponsor tyres before the race (legacy - gives bonus money now)
     from gmr.sponsorship import deliver_tyre_sponsor_tyres
     deliver_tyre_sponsor_tyres(state, time, race_name)
 

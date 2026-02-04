@@ -185,10 +185,15 @@ def generate_calendar_for_year(year):
     fillers = [
         "Bradley Fields", "Bradley Fields", "Bradley Fields",
         "Little Autodromo", "Little Autodromo", "Little Autodromo",
-        "Marblethorpe GP",
-        "Château-des-Prés GP",
         "Rougemont GP",
     ]
+    
+    # Add championship tracks as fillers only in pre-championship era
+    if not is_championship_year(year):
+        fillers.extend([
+            "Marblethorpe GP",
+            "Château-des-Prés GP",
+        ])
     
     # Add Americas races from 1948
     if year >= 1948:
@@ -201,6 +206,10 @@ def generate_calendar_for_year(year):
 
     def can_clash(existing_race, new_race):
         """Check if two races can share a week."""
+        # Same race cannot clash with itself
+        if existing_race == new_race:
+            return False
+            
         tier1 = get_race_tier(existing_race)
         tier2 = get_race_tier(new_race)
         

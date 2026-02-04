@@ -1925,7 +1925,7 @@ def show_driver_race_history(state, driver):
     input("\n  Press Enter to continue...")
 
 
-def show_driver_market(state):
+def show_driver_market(state, time=None):
     while True:
         print("\n=== Driver Market ===")
 
@@ -1968,9 +1968,12 @@ def show_driver_market(state):
 
         # Build market list: all non-Enzoni / non-Test drivers
         # Exception: Enzoni drivers marked as "hirable" (e.g., surviving driver after 1950 tragedy)
+        # Also exclude drivers whose appears_from_year hasn't arrived (e.g., German drivers before 1950)
+        current_year = time.year if time else 1948
         market_drivers = [
             d for d in drivers
-            if d["constructor"] not in ("Enzoni", "Test") or d.get("hirable")
+            if (d["constructor"] not in ("Enzoni", "Test") or d.get("hirable"))
+            and (not d.get("appears_from_year") or d.get("appears_from_year") <= current_year)
         ]
 
         print("\nAvailable Drivers:")
