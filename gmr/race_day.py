@@ -474,6 +474,168 @@ def handle_race_clash_choice(state, time, season_week, clash_races):
             print("Please enter 1, 2, or 3.")
 
 
+def show_prerace_garage(state, track_profile, is_wet):
+    """
+    Pre-race garage: last-minute tweaks before the race starts.
+    Player can make ONE adjustment that could help or hurt performance.
+    Success depends on mechanic skill + driver mechanical sympathy.
+    Stores temporary modifiers for this race only.
+    """
+    print("\n=== Pre-Race Garage ===")
+    print("Your mechanics can make one last-minute adjustment before the race.")
+    print("Success depends on your mechanics' skill and your driver's mechanical sympathy.")
+    
+    # Show current modifiers if any
+    if hasattr(state, 'race_performance_mod') and (state.race_performance_mod != 0 or state.race_crash_risk_mod != 0 or state.race_engine_risk_mod != 0):
+        print("\nCurrent setup modifiers:")
+        if state.race_performance_mod != 0:
+            sign = "+" if state.race_performance_mod > 0 else ""
+            print(f"  Performance: {sign}{state.race_performance_mod*100:.1f}%")
+        if state.race_crash_risk_mod != 0:
+            sign = "+" if state.race_crash_risk_mod > 0 else ""
+            print(f"  Crash risk: {sign}{state.race_crash_risk_mod*100:.1f}%")
+        if state.race_engine_risk_mod != 0:
+            sign = "+" if state.race_engine_risk_mod > 0 else ""
+            print(f"  Engine risk: {sign}{state.race_engine_risk_mod*100:.1f}%")
+        print("\n(Making another tweak will replace the current modifiers)")
+    
+    print("")
+    
+    # Get factors that affect success
+    mech_skill = state.garage.get_effective_mechanic_skill(state)
+    driver_mech = state.player_driver.get("mechanical_sympathy", 5) if state.player_driver else 5
+    
+    # Base success chance: 50% + (mech_skill * 3%) + (driver_mech * 2%)
+    # Range: ~50-80% for average teams, up to 90% for great teams
+    base_success = 0.50 + (mech_skill * 0.03) + (driver_mech * 0.02)
+    
+    tweaks = []
+    
+    # Always available: basic setup tweaks
+    tweaks.append({
+        "id": "suspension",
+        "name": "Suspension Setup Tweak",
+        "desc": "Fine-tune suspension for this track's characteristics",
+        "success_bonus": {"perf": 0.02, "desc": "Car feels planted and responsive (+2% performance)"},
+        "failure_penalty": {"perf": -0.03, "desc": "Car feels unpredictable and nervous (-3% performance)"},
+        "success_chance": base_success,
+    })
+    
+    # Engine-dependent tweaks
+    if state.current_engine:
+        tweaks.append({
+            "id": "mixture",
+            "name": "Fuel Mixture Optimization",
+            "desc": "Adjust fuel mixture for more power (risky)",
+            "success_bonus": {"perf": 0.03, "engine_risk": 0.02, "desc": "Engine runs stronger, slight risk increase (+3% performance, +2% engine risk)"},
+            "failure_penalty": {"perf": -0.01, "engine_risk": 0.08, "desc": "Mixture is off, engine runs rough (-1% performance, +8% engine risk)"},
+            "success_chance": base_success - 0.10,  # Riskier
+        })
+    
+    # Brake-dependent tweaks
+    if hasattr(state, 'current_brakes') and state.current_brakes:
+        tweaks.append({
+            "id": "brake_balance",
+            "name": "Brake Balance Adjustment",
+            "desc": "Optimize brake balance for this circuit",
+            "success_bonus": {"crash_risk": -0.05, "desc": "Brakes feel perfect, driver has more confidence (-5% crash risk)"},
+            "failure_penalty": {"crash_risk": 0.08, "desc": "Balance is wrong, braking feels unpredictable (+8% crash risk)"},
+            "success_chance": base_success,
+        })
+    
+    # Chassis-dependent tweaks
+    if state.current_chassis:
+        tweaks.append({
+            "id": "aero_trim",
+            "name": "Aerodynamic Trim",
+            "desc": "Adjust wing angles for speed vs cornering balance",
+            "success_bonus": {"perf": 0.025, "desc": "Perfect balance found between speed and grip (+2.5% performance)"},
+            "failure_penalty": {"perf": -0.02, "desc": "Compromise leaves car neither fast nor stable (-2% performance)"},
+            "success_chance": base_success + 0.05,  # Easier
+        })
+    
+    # Wet-specific tweak
+    if is_wet:
+        tweaks.append({
+            "id": "wet_setup",
+            "name": "Wet Weather Setup",
+            "desc": "Specialized adjustments for wet conditions",
+            "success_bonus": {"perf": 0.04, "crash_risk": -0.03, "desc": "Car is optimized for the wet (+4% performance, -3% crash risk)"},
+            "failure_penalty": {"perf": -0.02, "crash_risk": 0.05, "desc": "Setup makes car worse in the wet (-2% performance, +5% crash risk)"},
+            "success_chance": base_success - 0.05,
+        })
+    
+    print("Available tweaks:")
+    print("0. Skip tweaks – run with the current setup")
+    for i, tweak in enumerate(tweaks, 1):
+        chance_pct = int(tweak["success_chance"] * 100)
+        print(f"{i}. {tweak['name']}")
+        print(f"   {tweak['desc']}")
+        print(f"   Success chance: ~{chance_pct}%")
+    
+    print(f"\nYour factors: Mechanic skill {mech_skill}/10, Driver mech sympathy {driver_mech}/10")
+    
+    choice = input("\nSelect a tweak (0 to skip): ").strip()
+    
+    if choice == "0" or not choice:
+        print("\nYou decide to leave the setup as-is. Conservative choice.")
+        return
+    
+    try:
+        idx = int(choice) - 1
+        if idx < 0 or idx >= len(tweaks):
+            print("\nInvalid choice. Skipping tweaks.")
+            return
+    except ValueError:
+        print("\nInvalid choice. Skipping tweaks.")
+        return
+    
+    selected = tweaks[idx]
+    
+    # Reset modifiers before applying new tweak (prevents stacking)
+    state.race_performance_mod = 0.0
+    state.race_crash_risk_mod = 0.0
+    state.race_engine_risk_mod = 0.0
+    
+    print(f"\nYour mechanics start working on: {selected['name']}")
+    print("...")
+    input("Press Enter to see the result...")
+    
+    # Roll for success
+    roll = random.random()
+    success = roll < selected["success_chance"]
+    
+    if success:
+        print("\n✅ SUCCESS!")
+        bonus = selected["success_bonus"]
+        print(f"   {bonus['desc']}")
+        
+        if "perf" in bonus:
+            state.race_performance_mod += bonus["perf"]
+        if "crash_risk" in bonus:
+            state.race_crash_risk_mod += bonus["crash_risk"]
+        if "engine_risk" in bonus:
+            state.race_engine_risk_mod += bonus["engine_risk"]
+        
+        # Small XP gain for driver on successful tweaks
+        if state.player_driver and "perf" in bonus:
+            state.player_driver["xp"] = state.player_driver.get("xp", 0) + 0.1
+    else:
+        print("\n❌ FAILURE!")
+        penalty = selected["failure_penalty"]
+        print(f"   {penalty['desc']}")
+        
+        if "perf" in penalty:
+            state.race_performance_mod += penalty["perf"]
+        if "crash_risk" in penalty:
+            state.race_crash_risk_mod += penalty["crash_risk"]
+        if "engine_risk" in penalty:
+            state.race_engine_risk_mod += penalty["engine_risk"]
+    
+    print("\nYour mechanics close up the car. Time to race!")
+    input("Press Enter to continue...")
+
+
 def handle_race_week(state, time):
     """
     Race weekend flow:
@@ -784,21 +946,31 @@ def handle_race_week(state, time):
     # Between-sessions menu – you're locked into the weekend now
     while True:
         print("\nBetween Sessions:")
-        print("1. Garage (post-qualifying adjustments – not implemented yet)")
+        print("1. Pre-Race Garage (last-minute tweaks)")
         print("2. Start the race")
 
         choice = input("> ").strip()
 
         if choice == "1":
-            # Future hook: this will be the 'race-day garage' screen.
-            print("\nPost-qualifying garage options are not implemented yet.")
-            print("You'll be able to tweak setup here in a later version.")
+            # Pre-race garage: last-minute setup tweaks
+            show_prerace_garage(state, track_profile, is_wet)
         elif choice in ("", "2"):
             # Set default strategy values - player will choose pace each stage
             state.risk_mode = "neutral"
             state.risk_multiplier = 1.0
             state.race_strategy = "neutral"
+            
+            # Clear any previous race modifiers just before the race
+            state.race_performance_mod = getattr(state, 'race_performance_mod', 0.0)
+            state.race_crash_risk_mod = getattr(state, 'race_crash_risk_mod', 0.0)
+            state.race_engine_risk_mod = getattr(state, 'race_engine_risk_mod', 0.0)
+            
             run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot)
+            
+            # Clear race modifiers after the race
+            state.race_performance_mod = 0.0
+            state.race_crash_risk_mod = 0.0
+            state.race_engine_risk_mod = 0.0
 
             input("\nPress Enter to see the race weekend summary...")
 

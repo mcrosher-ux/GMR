@@ -753,6 +753,8 @@ def update_fame_after_race(finishers, fame_mult=1.0, race_name=None, season_week
       - soft cap slows growth as fame rises
       - track fame_cap stops small events boosting already-known drivers
     """
+    from gmr.driver_traits import get_trait_effect
+    
     if year is None:
         year = 1947
 
@@ -797,6 +799,10 @@ def update_fame_after_race(finishers, fame_mult=1.0, race_name=None, season_week
 
         # Soft cap (slows growth as fame rises)
         gain *= max(0.15, 1.0 - old_fame * 0.18)
+        
+        # Apply trait fame multiplier (e.g., Crowd Favorite gains more, Camera Shy gains less)
+        trait_fame_mult = get_trait_effect(d.get("traits", []), "fame_multiplier", 1.0)
+        gain *= trait_fame_mult
 
         new_fame = old_fame + gain
 
@@ -816,6 +822,8 @@ def update_driver_progress(state, finishers, time, xp_mult=1.0):
     Handle XP gains and occasional stat increases for drivers.
     Returns: player_xp_gain (float)
     """
+    from gmr.driver_traits import get_trait_effect
+    
     player_xp_gain = 0.0
 
     for pos, (d, _) in enumerate(finishers):
@@ -841,7 +849,9 @@ def update_driver_progress(state, finishers, time, xp_mult=1.0):
         base_xp = base_xp + pos_bonus + podium_bonus
 
         dev_rate = float(d.get("development_rate", 1.0))
-        xp_gain = base_xp * dev_rate * float(xp_mult)
+        # Apply trait XP multiplier
+        trait_xp_mult = get_trait_effect(d.get("traits", []), "xp_multiplier", 1.0)
+        xp_gain = base_xp * dev_rate * float(xp_mult) * trait_xp_mult
 
         d["xp"] = d.get("xp", 0.0) + xp_gain
 
@@ -898,12 +908,16 @@ def grant_participation_xp_for_dnfs(state, dnf_drivers, time, xp_mult=1.0):
     Rule B: DNFs get participation XP only (no fame).
     Returns: player_xp_gain_extra (float)
     """
+    from gmr.driver_traits import get_trait_effect
+    
     player_xp_gain_extra = 0.0
 
     for d in dnf_drivers:
         base_xp = 0.1  # participation only
         dev_rate = d.get("development_rate", 1.0)
-        xp_gain = base_xp * dev_rate * xp_mult
+        # Apply trait XP multiplier
+        trait_xp_mult = get_trait_effect(d.get("traits", []), "xp_multiplier", 1.0)
+        xp_gain = base_xp * dev_rate * xp_mult * trait_xp_mult
 
         d["xp"] = d.get("xp", 0.0) + xp_gain
 
@@ -946,9 +960,12 @@ def init_driver_careers():
       - peak_age (random per save)
       - decline_age (random per save)
       - xp / form scaffolding for future use
+      - personality traits
 
     This makes each save have different driver career curves.
     """
+    from gmr.driver_traits import assign_starting_traits
+    
     for d in drivers:
         # Make sure we have an age – if missing, default to a late-30s old boy
         age = d.get("age")
@@ -994,6 +1011,9 @@ def init_driver_careers():
         # Comfort in THIS car (player-facing). 0.0–10.0
         if "car_xp" not in d:
             d["car_xp"] = 0.0
+        
+        # Assign personality traits
+        assign_starting_traits(d)
 
 def spawn_new_rookies(state, time):
     """
@@ -1278,6 +1298,10 @@ def spawn_new_rookies(state, time):
         rookie["decline_age"] = decline_age
         rookie["xp"] = 0.0
         rookie["form"] = 0.0
+        
+        # Assign starting traits to new rookie
+        from gmr.driver_traits import assign_starting_traits
+        assign_starting_traits(rookie)
 
         drivers.append(rookie)
         created.append(rookie)
@@ -1912,6 +1936,16 @@ def show_driver_profile(state, driver):
         print(f"  Mechanical Sympathy: {driver.get('mechanical_sympathy', '?')}/10")
         print(f"  Wet Skill: {driver.get('wet_skill', '?')}/10")
         
+        # Personality traits
+        traits = driver.get("traits", [])
+        if traits:
+            from gmr.driver_traits import format_trait_display
+            print("\n  --- PERSONALITY TRAITS ---")
+            for trait_id in traits:
+                trait_display = format_trait_display(trait_id)
+                if trait_display:
+                    print(f"  {trait_display}")
+        
         # Career stats from driver_histories
         history = None
         if hasattr(state, 'driver_histories') and state.driver_histories:
@@ -2299,6 +2333,11 @@ def show_driver_market(state, time=None):
         base_pay = stat_sum * 2  # skill-based base
         fame_factor = 1 + fame * 0.20  # each fame point makes them ~20% pricier
         pay_per_race = int(base_pay * fame_factor)
+        
+        # Apply trait salary multiplier (e.g., Gold Digger demands +50%)
+        from gmr.driver_traits import get_trait_effect
+        trait_salary_mult = get_trait_effect(selected_driver.get("traits", []), "salary_multiplier", 1.0)
+        pay_per_race = int(pay_per_race * trait_salary_mult)
 
         total_contract_cost = pay_per_race * races
 

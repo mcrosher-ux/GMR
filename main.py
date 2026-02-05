@@ -876,27 +876,24 @@ def run_game():
                 state.last_week_travel_cost = 0
                 state.last_week_outgoings = 0
 
-                # Skip all costs if hibernating
-                if state.garage_hibernating:
-                    # Time still advances, but no costs
-                    time.advance_week()
-                    continue
+                # ------------------------------
+                # Base running costs (garage + staff) - SKIP if hibernating
+                # ------------------------------
+                if not state.garage_hibernating:
+                    staff_cost = state.garage.staff_count * state.garage.staff_salary
+                    base_outgoings = state.garage.base_cost + staff_cost
 
-                # Base running costs (garage + staff)
-                staff_cost = state.garage.staff_count * state.garage.staff_salary
-                base_outgoings = state.garage.base_cost + staff_cost
-
-                # Pay base running costs
-                state.money -= base_outgoings
-                state.last_week_outgoings += base_outgoings
+                    # Pay base running costs
+                    state.money -= base_outgoings
+                    state.last_week_outgoings += base_outgoings
 
 
 
 
                 # ------------------------------
-                # Chassis development program (SLOTS)
+                # Chassis development program (SLOTS) - SKIP if hibernating
                 # ------------------------------
-                if state.chassis_project_active and state.current_chassis:
+                if not state.garage_hibernating and state.chassis_project_active and state.current_chassis:
                     ch = state.current_chassis
                     supplier_key = ch.get("supplier", "")
 
@@ -1087,9 +1084,9 @@ def run_game():
                             )
 
                 # ------------------------------
-                # Weekly loan interest (flat, non-compounding)
+                # Weekly loan interest (flat, non-compounding) - SKIP if hibernating
                 # ------------------------------
-                if state.loan_balance > 0 and state.loan_interest_rate > 0:
+                if not state.garage_hibernating and state.loan_balance > 0 and state.loan_interest_rate > 0:
                     interest = int(state.loan_balance * state.loan_interest_rate)
                     if interest < 1:
                         interest = 1  # at least something each week
@@ -1109,9 +1106,9 @@ def run_game():
                 maybe_add_weekly_rumour(state, time)
 
                 # ------------------------------
-                # Bankruptcy check AFTER all weekly costs
+                # Bankruptcy check AFTER all weekly costs - SKIP if hibernating
                 # ------------------------------
-                if state.money < -1000:
+                if not state.garage_hibernating and state.money < -1000:
                     rescued = handle_bankruptcy_rescue(state, time)
                     if not rescued or state.money < -1000:
                       state.bankrupt = True
