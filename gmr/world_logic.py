@@ -682,6 +682,10 @@ def create_regen_driver(time):
 
     # Car comfort / familiarity starts at zero for new drivers
     new_d["car_xp"] = 0.0
+    
+    # Assign starting traits to new driver
+    from gmr.driver_traits import assign_starting_traits
+    assign_starting_traits(new_d)
 
     return new_d
 

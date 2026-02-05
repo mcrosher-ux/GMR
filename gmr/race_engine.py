@@ -182,6 +182,8 @@ class RaceSimulator:
     
     def _precompute_incidents(self):
         """Pre-determine which AI drivers will have incidents and in which stage."""
+        from gmr.driver_traits import get_trait_effect
+        
         incidents = {}
         reliability_mult = get_reliability_mult(self.time)
         crash_mult = get_crash_mult(self.time)
@@ -201,11 +203,16 @@ class RaceSimulator:
             consistency = d.get("consistency", 5)
             wet_skill = d.get("wet_skill", 5)
             
+            # Apply driver trait multipliers
+            trait_crash_mult = get_trait_effect(d.get("traits", []), "crash_mult", 1.0)
+            trait_engine_mult = get_trait_effect(d.get("traits", []), "engine_fail_mult", 1.0)
+            
             # Engine failure chance
             engine_fail_chance = (11 - car_reliability) * 0.02 * reliability_mult
             engine_fail_chance *= (1 + (5 - mech) * 0.05)
             engine_fail_chance *= self.track_profile.get("engine_danger", 1.0)
             engine_fail_chance *= self.race_length_factor
+            engine_fail_chance *= trait_engine_mult  # Apply trait
             
             if self.is_hot:
                 heat_intensity = self.track_profile.get("heat_intensity", 1.0)
@@ -219,6 +226,7 @@ class RaceSimulator:
                 gearbox_fail_chance *= (1 + (5 - mech) * 0.04)
                 gearbox_fail_chance *= self.track_profile.get("engine_danger", 1.0)
                 gearbox_fail_chance *= self.race_length_factor
+                gearbox_fail_chance *= trait_engine_mult  # Apply trait
 
             # Brake failure chance
             brake_fail_chance = 0.0
@@ -228,6 +236,7 @@ class RaceSimulator:
                 brake_fail_chance *= (1 + (5 - mech) * 0.03)
                 brake_fail_chance *= self.track_profile.get("crash_danger", 1.0)
                 brake_fail_chance *= self.race_length_factor
+                brake_fail_chance *= trait_crash_mult  # Apply trait
                 if self.is_hot:
                     brake_fail_chance *= 1.2
             
@@ -237,6 +246,7 @@ class RaceSimulator:
             base_crash_chance *= (1 + (5 - mech) * 0.03)
             crash_chance = base_crash_chance * crash_mult
             crash_chance *= self.track_profile.get("crash_danger", 1.0)
+            crash_chance *= trait_crash_mult  # Apply trait
             
             if self.is_wet:
                 wet_factor = wet_skill / 10.0
@@ -551,6 +561,8 @@ class RaceSimulator:
         # =========================================================================
         player = self.game_state.player_driver
         if player and player in self.current_positions:
+            from gmr.driver_traits import get_trait_effect
+            
             player_name = player.get("name")
             
             # Get player car stats
@@ -570,12 +582,17 @@ class RaceSimulator:
             # Driver mechanical sympathy
             mech = player.get("mechanical_sympathy", 5)
             
+            # Apply driver trait multipliers
+            trait_crash_mult = get_trait_effect(player.get("traits", []), "crash_mult", 1.0)
+            trait_engine_mult = get_trait_effect(player.get("traits", []), "engine_fail_mult", 1.0)
+            
             # Base engine failure chance per stage (calibrated for 1940s racing)
             reliability_mult = get_reliability_mult(self.time)
             base_engine_fail = (11 - car_reliability) * 0.012 * reliability_mult  # Reduced from 0.025
             base_engine_fail *= (1 + (5 - mech) * 0.06)  # Reduced from 0.08
             base_engine_fail *= self.track_profile.get("engine_danger", 1.0)
             base_engine_fail *= self.race_length_factor / 3.0  # Per stage
+            base_engine_fail *= trait_engine_mult  # Apply trait
             
             # Condition affects reliability: good condition = more reliable
             # 100% condition: 0.5x failure rate, 50% condition: 1.0x, 0% condition: 2.0x
@@ -593,6 +610,7 @@ class RaceSimulator:
                 gearbox_fail *= self.track_profile.get("engine_danger", 1.0)
                 gearbox_fail *= self.race_length_factor / 3.0
                 gearbox_fail *= self.player_engine_mult
+                gearbox_fail *= trait_engine_mult  # Apply trait
             
             # Hot conditions
             if self.is_hot:
@@ -609,6 +627,7 @@ class RaceSimulator:
             base_crash *= (1 + (aggression - 5) * 0.06)  # Reduced from 0.08
             base_crash *= self.track_profile.get("crash_danger", 1.0)
             base_crash *= self.race_length_factor / 3.0  # Per stage
+            base_crash *= trait_crash_mult  # Apply trait
             
             # Player strategy affects crash risk
             base_crash *= self.player_crash_mult
@@ -629,6 +648,7 @@ class RaceSimulator:
                 if self.is_hot:
                     brake_fail *= 1.2
                 brake_fail *= self.player_crash_mult
+                brake_fail *= trait_crash_mult  # Apply trait
             
             # Wet conditions
             if self.is_wet:
@@ -637,6 +657,15 @@ class RaceSimulator:
                 base_crash *= rain_crash_mult
             
             base_crash *= self.grid_risk_mult
+            
+            # Apply pre-race garage tweaks modifiers
+            prerace_crash_mod = getattr(self.game_state, 'race_crash_risk_mod', 0.0)
+            prerace_engine_mod = getattr(self.game_state, 'race_engine_risk_mod', 0.0)
+            
+            base_crash *= (1 + prerace_crash_mod)
+            base_engine_fail *= (1 + prerace_engine_mod)
+            gearbox_fail *= (1 + prerace_engine_mod)
+            brake_fail *= (1 + prerace_crash_mod)  # Brake failures tied to crash risk
             
             # Roll for incidents
             player_incident = None
@@ -982,6 +1011,12 @@ class RaceSimulator:
             
             # Consistency affects variance - higher consistency = less swing
             consistency_factor = d["consistency"] / 10.0
+            
+            # Apply trait consistency bonus (e.g., Ice Cool reduces variance)
+            from gmr.driver_traits import get_trait_effect
+            trait_cons_bonus = get_trait_effect(d.get("traits", []), "consistency_bonus", 0.0)
+            consistency_factor = min(1.0, consistency_factor + trait_cons_bonus / 10.0)
+            
             variance_range = (1 - consistency_factor) * weighted_pace * 0.3
             variance = random.uniform(-variance_range, variance_range)
             
@@ -998,6 +1033,11 @@ class RaceSimulator:
                 wet_skill = d.get("wet_skill", 5)
                 wet_factor = 0.85 + (wet_skill / 10.0) * 0.30
                 stage_perf *= wet_factor
+                
+                # Apply trait wet skill bonus
+                from gmr.driver_traits import get_trait_effect
+                trait_wet_bonus = get_trait_effect(d.get("traits", []), "wet_skill_bonus", 0.0)
+                stage_perf *= (1.0 + trait_wet_bonus / 10.0)  # Normalize bonus
             
             # Hot conditions affect performance
             if self.is_hot:
@@ -1021,6 +1061,10 @@ class RaceSimulator:
                 car_speed = get_car_speed_for_track(self.game_state, self.track_profile)
                 car_bonus = (car_speed - 5) * 0.03
                 stage_perf *= (1 + car_bonus)
+                
+                # Apply pre-race garage tweaks modifier
+                prerace_perf_mod = getattr(self.game_state, 'race_performance_mod', 0.0)
+                stage_perf *= (1 + prerace_perf_mod)
             else:
                 # AI car performance
                 car_speed, _ = get_ai_car_stats(d.get("constructor"))
@@ -1829,6 +1873,8 @@ def precompute_ai_stage_incidents(event_grid, state, track_profile, time, is_wet
     Decide AI DNFs up front so stage updates can name actual incidents.
     Returns dict: driver_name -> {"type": "engine"|"crash", "stage": label}.
     """
+    from gmr.driver_traits import get_trait_effect
+    
     incidents = {}
 
     reliability_mult = get_reliability_mult(time)
@@ -1845,11 +1891,16 @@ def precompute_ai_stage_incidents(event_grid, state, track_profile, time, is_wet
         aggression = d.get("aggression", 5)
         consistency = d.get("consistency", 5)
         wet_skill = d.get("wet_skill", 5)
+        
+        # Apply driver trait multipliers
+        trait_crash_mult = get_trait_effect(d.get("traits", []), "crash_mult", 1.0)
+        trait_engine_mult = get_trait_effect(d.get("traits", []), "engine_fail_mult", 1.0)
 
         engine_fail_chance = (11 - car_reliability) * 0.02 * reliability_mult
         engine_fail_chance *= (1 + (5 - mech) * 0.05)
         engine_fail_chance *= track_profile.get("engine_danger", 1.0)
         engine_fail_chance *= race_length_factor
+        engine_fail_chance *= trait_engine_mult  # Apply trait
 
         if is_hot:
             heat_intensity = track_profile.get("heat_intensity", 1.0)
@@ -1861,6 +1912,7 @@ def precompute_ai_stage_incidents(event_grid, state, track_profile, time, is_wet
 
         crash_chance = base_crash_chance * crash_mult
         crash_chance *= track_profile.get("crash_danger", 1.0)
+        crash_chance *= trait_crash_mult  # Apply trait
 
         if is_wet:
             wet_factor = wet_skill / 10.0
@@ -3114,11 +3166,15 @@ def print_full_classification(race_name, finishers, retired, is_wet, is_hot, yea
             
             print(f"  DNF {name:<20} ({constructor:<15}) - {reason_text}")
     
-    # Display fastest lap (from 1952 onwards in championship races)
-    if fastest_lap_driver and is_champ_race and year >= FASTEST_LAP_POINT_YEAR:
+    # Display fastest lap
+    if fastest_lap_driver:
         fl_name = fastest_lap_driver.get("name", "Unknown")
         fl_constructor = fastest_lap_driver.get("constructor", "")
-        print(f"\n  ⏱️  FASTEST LAP: {fl_name} ({fl_constructor}) — +1 bonus point")
+        # Show bonus point indicator only if conditions met
+        bonus_text = ""
+        if is_champ_race and year >= FASTEST_LAP_POINT_YEAR:
+            bonus_text = " — +1 bonus point"
+        print(f"\n  ⏱️  FASTEST LAP: {fl_name} ({fl_constructor}){bonus_text}")
     
     print(f"\n{'='*60}")
     
@@ -3632,6 +3688,8 @@ def simulate_qualifying(state, race_name, time, track_profile):
     Simulate a single qualifying session for this race.
     Now includes player strategy choice mini-game.
     """
+    from gmr.driver_traits import get_trait_effect
+    
     results = []
     grid_bonus = {}
 
@@ -3665,6 +3723,10 @@ def simulate_qualifying(state, race_name, time, track_profile):
         if is_wet_quali:
             wet_factor = d.get("wet_skill", 5) / 10.0
             perf *= (0.9 + wet_factor * 0.3)
+        
+        # Apply trait bonuses
+        quali_bonus = get_trait_effect(d.get("traits", []), "quali_bonus", 0.0)
+        perf += quali_bonus
 
         # Apply player strategy effects
         if d == state.player_driver and player_strategy:
@@ -4023,12 +4085,16 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
                 else:
                     print(f"    DNF. {name:<18} ({constructor:<12}) — {reason_label}")
         
-        # Display fastest lap (from 1952 onwards in championship races)
+        # Display fastest lap
         from gmr.constants import FASTEST_LAP_POINT_YEAR
-        if fastest_lap_driver and is_champ_race and time.year >= FASTEST_LAP_POINT_YEAR:
+        if fastest_lap_driver:
             fl_name = fastest_lap_driver.get("name")
             fl_constructor = fastest_lap_driver.get("constructor", "")
-            print(f"\n⏱️  FASTEST LAP: {fl_name} ({fl_constructor}) — +1 bonus point")
+            # Show bonus point indicator only if conditions met
+            bonus_text = ""
+            if is_champ_race and time.year >= FASTEST_LAP_POINT_YEAR:
+                bonus_text = " — +1 bonus point"
+            print(f"\n⏱️  FASTEST LAP: {fl_name} ({fl_constructor}){bonus_text}")
         
         input("\n  Press Enter to continue...")
         
@@ -4189,58 +4255,45 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
         pay_appearance_money(state, race_name)
 
     # ------------------------------
-    # SPONSORSHIP PAYMENTS
+    # SPONSORSHIP PAYMENTS (Multi-sponsor system)
     # ------------------------------
-    if state.sponsor_active and state.player_driver:
-        # Appearance fee is paid as long as the car turned up for the race,
-        # even if it retires
-        state.sponsor_races_started += 1
-
-        mult = getattr(state, "sponsor_rate_multiplier", 1.0)
-
-        # Appearance money
-        appearance = int(60 * mult)
-        state.money += appearance
-        state.last_week_income += appearance
-        state.last_week_sponsor_income += appearance
-        state.constructor_earnings += appearance
-
-        # Points bonus ONLY if this is a championship race
-        if is_champ_race and player_finish_pos is not None and player_finish_pos < len(POINTS_TABLE):
-            pts = POINTS_TABLE[player_finish_pos]
-            points_bonus = int(pts * 10 * mult)
-            state.money += points_bonus
-            state.last_week_income += points_bonus
-            state.last_week_sponsor_income += points_bonus
-            state.constructor_earnings += points_bonus
-
-        # Podium bonus (always valid, championship or not)
-        if player_finish_pos is not None and player_finish_pos <= 2:
-            state.sponsor_podiums += 1
-            podium_bonus = int(120 * mult)
-            state.money += podium_bonus
-            state.last_week_income += podium_bonus
-            state.last_week_sponsor_income += podium_bonus
-            state.constructor_earnings += podium_bonus
-
-        # Check sponsor goals
-        if not state.sponsor_goals_races_started and state.sponsor_races_started >= 3:
-            state.sponsor_goals_races_started = True
-            bonus = 500  # bonus for completing races started goal
-            state.money += bonus
-            state.last_week_income += bonus
-            state.last_week_sponsor_income += bonus
-            state.constructor_earnings += bonus
-            state.news.append(f"Sponsor bonus: Completed 3 races started goal! +£{bonus}")
-
-        if not state.sponsor_goals_podium and state.sponsor_podiums >= 1:
-            state.sponsor_goals_podium = True
-            bonus = 1000  # bonus for completing podium goal
-            state.money += bonus
-            state.last_week_income += bonus
-            state.last_week_sponsor_income += bonus
-            state.constructor_earnings += bonus
-            state.news.append(f"Sponsor bonus: Achieved first podium! +£{bonus}")
+    if state.player_driver:
+        from gmr.sponsorship import get_active_sponsors, SPONSORS, SPONSOR_TIERS
+        
+        sponsors = get_active_sponsors(state)
+        for sponsor_contract in sponsors:
+            sponsor_name = sponsor_contract.get("name")
+            sponsor_info = SPONSORS.get(sponsor_name, {})
+            tier = sponsor_contract.get("tier", "associate")
+            tier_info = SPONSOR_TIERS.get(tier, {})
+            
+            # Base payments per tier
+            payments = tier_info.get("payments", {})
+            appearance = payments.get("appearance_fee", 0)
+            
+            # Appearance fee is paid as long as the car turned up for the race
+            state.money += appearance
+            state.last_week_income += appearance
+            state.last_week_sponsor_income += appearance
+            state.constructor_earnings += appearance
+            
+            # Points bonus ONLY if this is a championship race
+            if is_champ_race and player_finish_pos is not None and player_finish_pos < len(POINTS_TABLE):
+                pts = POINTS_TABLE[player_finish_pos]
+                points_bonus = int(pts * payments.get("points_multiplier", 5))
+                state.money += points_bonus
+                state.last_week_income += points_bonus
+                state.last_week_sponsor_income += points_bonus
+                state.constructor_earnings += points_bonus
+            
+            # Podium bonus (always valid, championship or not)
+            if player_finish_pos is not None and player_finish_pos <= 3:
+                podium_bonus = payments.get("podium_bonus", 0)
+                if podium_bonus > 0:
+                    state.money += podium_bonus
+                    state.last_week_income += podium_bonus
+                    state.last_week_sponsor_income += podium_bonus
+                    state.constructor_earnings += podium_bonus
 
     # Pay driver salary ONLY on race weeks (mercenary model)
     if state.player_driver and state.driver_pay > 0:
@@ -4551,6 +4604,17 @@ def run_race(state, race_name, time, season_week, grid_bonus, is_wet, is_hot):
 
     # AI driver contracts
     tick_ai_contracts_after_race_end(state, time, finishers, dnf_drivers)
+    
+    # Check for earnable traits after each race
+    from gmr.driver_traits import check_earnable_traits
+    all_drivers = list(state.drivers.values())
+    for driver in all_drivers:
+        newly_earned = check_earnable_traits(driver, state.results)
+        if newly_earned and driver == state.player_driver:
+            for trait_id in newly_earned:
+                state.news.append(
+                    f"{driver['name']} has earned a new trait: {trait_id.replace('_', ' ').title()}!"
+                )
 
     record_race_result(state, time, season_week, race_name, is_wet, is_hot, finishers, retired, fastest_lap_driver)
 

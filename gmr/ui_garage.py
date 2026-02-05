@@ -1147,7 +1147,7 @@ def maybe_progress_r_and_d(state, time):
         return
 
     state.money -= base_cost
-    state.last_week_rd_spend += base_cost
+    state.last_week_rnd += base_cost
     state.last_week_outgoings += base_cost
 
     progress_gain = progress_base + mech * 0.6
